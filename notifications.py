@@ -13,17 +13,21 @@ from .lang import tr
 class GerenciadorNotificacao:
     """
     Gerencia as notificações inteligentes.
-    Adicionada proteção para não notificar números instáveis durante sincronização.
+    Usa consultas SQL diretas para evitar contagens duplicadas do agendador do Anki.
     """
     def __init__(self):
+        # Define o caminho do arquivo de log para diagnóstico
         self.caminho_log = os.path.join(os.path.dirname(__file__), "debug_log.txt")
+        # Temporizador para verificações periódicas
         self.temporizador = QTimer(mw)
         self.temporizador.timeout.connect(self.ao_bater_relogio)
+        # Referência para detectar novos cartões surgindo
         self.referencia_anterior = 0
+        # Inicializa o timer baseado no config.json
         self.iniciar_temporizador()
 
     def registrar_log(self, mensagem):
-        """Registra eventos no arquivo de debug."""
+        """Grava eventos no arquivo debug_log.txt."""
         try:
             agora = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             with open(self.caminho_log, "a", encoding="utf-8") as f:
@@ -32,7 +36,7 @@ class GerenciadorNotificacao:
             pass
 
     def iniciar_temporizador(self):
-        """Inicia o timer de verificação."""
+        """Lê as configurações e inicia o timer."""
         config = mw.addonManager.getConfig(__name__)
         if config.get("notificacoes_ativadas"):
             minutos = config.get("intervalo_notificacao", 30)
@@ -43,61 +47,63 @@ class GerenciadorNotificacao:
             self.temporizador.stop()
 
     def obter_contagem_relevante(self):
-        """Lê a árvore de baralhos somando Learn + Due."""
+        """
+        Consulta o banco de dados por IDs únicos de cartões Learn e Due.
+        Isso elimina o bug onde o Anki conta o mesmo cartão duas vezes na árvore.
+        """
         try:
             if not mw.col:
                 return 0
 
-            # Atualiza o agendador para ver cartões que venceram por tempo
+            # Força o processamento de cartões que venceram o tempo
             mw.col.reset()
 
-            raiz = mw.col.sched.deck_due_tree()
-            total_learn = 0
-            total_review = 0
+            # Consultamos o banco de dados por cartões que NÃO são novos (queue != 0)
+            # e que estão com o prazo de revisão (due) vencido em relação ao momento atual.
+            # queue 1 = Learn, queue 2 = Review/Due, queue 3 = Day Learn.
+            agora_timestamp = int(datetime.datetime.now().timestamp())
             
-            def processar_no(no):
-                nonlocal total_learn, total_review
-                total_learn += getattr(no, 'learn_count', 0)
-                total_review += getattr(no, 'review_count', 0)
-                if hasattr(no, 'children'):
-                    for filho in no.children:
-                        processar_no(filho)
-
-            processar_no(raiz)
-            total = total_learn + total_review
-            self.registrar_log(f"SCAN: Learn={total_learn} | Due={total_review} -> TOTAL={total}")
+            # SQL para contar cartões únicos que estão em Learn ou Due
+            # queue in (1, 2, 3) filtra para não pegar cartões Novos (queue 0)
+            # due <= ? garante que só pegamos o que venceu agora
+            query = "SELECT count(id) FROM cards WHERE queue IN (1, 2, 3) AND due <= ?"
+            
+            # Executa a consulta no banco de dados da coleção
+            total = mw.col.db.scalar(query, agora_timestamp) or 0
+            
+            self.registrar_log(f"BANCO DE DADOS: Total de cartões únicos (Learn+Due) encontrados: {total}")
             return total
+            
         except Exception as e:
-            self.registrar_log(f"ERRO SCAN: {str(e)}")
+            self.registrar_log(f"ERRO SQL: {str(e)}")
             return 0
     
     def resetar_contagem(self):
-        """Sincroniza a referência com o estado atual."""
+        """Sincroniza a referência com o estado real do banco."""
         self.referencia_anterior = self.obter_contagem_relevante()
         self.registrar_log(f"RESET: Referência em {self.referencia_anterior}.")
 
     def verificar_inicializacao(self, iniciado_minimizado):
-        """Verifica pendências no boot."""
+        """Checagem inicial ao abrir o perfil."""
         self.resetar_contagem()
         if iniciado_minimizado and self.referencia_anterior > 0:
             msg = tr("msg_boot").format(self.referencia_anterior)
             self.mostrar_notificacao(msg)
 
     def ao_bater_relogio(self):
-        """Ciclo do timer: Primeiro sincroniza, depois verifica para garantir números reais."""
+        """Ciclo do timer: Sincroniza e depois verifica."""
         self.registrar_log("TIMER: Iniciando ciclo...")
         
-        # Se estiver minimizado, sincroniza primeiro para atualizar os dados do servidor
         if not mw.isVisible():
             self.registrar_log("TIMER: Sincronizando antes de contar...")
             mw.onSync()
-            # Aguarda um pequeno instante para o Anki processar os dados baixados
-            QTimer.singleShot(2000, self.verificar_novas_pendencias)
+            # Espera 3 segundos para o banco de dados estabilizar após a sync
+            QTimer.singleShot(3000, self.verificar_novas_pendencias)
         else:
             self.verificar_novas_pendencias()
 
     def verificar_novas_pendencias(self):
-        """Verifica se há novos cartões após a estabilização dos dados."""
+        """Compara a contagem do banco com a referência anterior."""
         if mw.isVisible():
             self.resetar_contagem()
             return
@@ -109,24 +115,25 @@ class GerenciadorNotificacao:
             self.registrar_log(f"CHECK: Atual={atual} | Anterior={self.referencia_anterior} | Delta={delta}")
             
             if delta > 0:
+                # Se o delta for positivo, novos cartões venceram
                 if delta == 1:
                     msg = tr("msg_novos_um")
                 else:
                     msg = tr("msg_novos_varios").format(delta)
                 
-                self.registrar_log(f"DISPARO: Notificando {delta} novos cartões.")
+                self.registrar_log(f"DISPARO: Notificando {delta} cartões.")
                 self.mostrar_notificacao(msg)
                 self.referencia_anterior = atual
             elif delta < 0:
-                # Se o número diminuiu (você estudou em outro lugar), apenas atualiza a referência
-                self.registrar_log(f"Ajuste: Pendências diminuíram para {atual}. Atualizando referência.")
+                # Se estudou em outro lugar, apenas ajusta a referência para baixo
+                self.registrar_log(f"AJUSTE: Pendências caíram para {atual}. Atualizando referência.")
                 self.referencia_anterior = atual
             
         except Exception as e:
             self.registrar_log(f"ERRO CHECK: {str(e)}")
 
     def mostrar_notificacao(self, mensagem):
-        """Exibe o alerta visual."""
+        """Chama a interface do sistema para exibir o alerta."""
         QApplication.beep()
         from .tray import gerenciador_bandeja
         if gerenciador_bandeja.icone_bandeja:

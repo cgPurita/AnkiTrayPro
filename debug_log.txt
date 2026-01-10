@@ -1,4 +1,0 @@
-[2026-01-10 16:36:09] [NOTIFIER] TIMER: Iniciando ciclo de verificação automática...
-[2026-01-10 16:36:09] [NOTIFIER] STATUS: Janela visível. Atualizando referência e pulando notificação.
-[2026-01-10 16:36:09] [NOTIFIER] SCAN GLOBAL: Novos(Ignorados)=0 | Learn=10 | Due=0 -> TOTAL RELEVANTE=10
-[2026-01-10 16:36:09] [NOTIFIER] RESET: Contagem de referência sincronizada em 10.
