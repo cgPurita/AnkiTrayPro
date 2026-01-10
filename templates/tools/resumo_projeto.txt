@@ -1,5 +1,5 @@
 === RAIO-X DO PROJETO: AnkiTrayPro ===
-Gerado em: 2026-01-10 01:38:35.590741
+Gerado em: 2026-01-10 02:41:36.896742
 Copyright © 2025 Caio Graco Purita
 ==================================================
 
@@ -123,67 +123,134 @@ FILE: gui.py
 # Copyright © 2025 Caio Graco Purita. Todos os direitos reservados.
 # ARQUIVO: gui.py
 # -------------------------------------------------------------------------
+import sys
+import os
+import winreg  # Módulo para interação com o Registro do Windows
 from aqt import mw
 from aqt.qt import *
 from .lang import tr
 from .consts import *
 from .notifications import notificador
 
+class StartupManager:
+    """
+    Classe utilitária responsável por gerenciar a entrada do aplicativo
+    no Registro do Windows, permitindo a inicialização automática com o sistema.
+    """
+    
+    # Define o caminho da chave de registro para execução automática no usuário atual
+    KEY_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
+    # Define o nome interno da chave para nossa aplicação
+    APP_NAME = "AnkiTrayPro_Launcher"
+
+    @staticmethod
+    def esta_no_inicio():
+        """
+        Verifica se a chave de registro do aplicativo já existe.
+        Retorna True se estiver configurado para iniciar, False caso contrário.
+        """
+        try:
+            # Tenta abrir a chave de registro em modo somente leitura
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, StartupManager.KEY_PATH, 0, winreg.KEY_READ)
+            # Tenta ler o valor associado ao nome do aplicativo
+            winreg.QueryValueEx(key, StartupManager.APP_NAME)
+            # Fecha a chave após a leitura
+            winreg.CloseKey(key)
+            return True
+        except FileNotFoundError:
+            # Retorna False se a chave ou valor não existirem
+            return False
+        except Exception:
+            # Retorna False em caso de outros erros de permissão ou acesso
+            return False
+
+    @staticmethod
+    def definir_inicio(ativar):
+        """
+        Cria ou remove a entrada no registro do Windows conforme o parâmetro 'ativar'.
+        """
+        try:
+            # Abre a chave de registro com permissão total de acesso (leitura e escrita)
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, StartupManager.KEY_PATH, 0, winreg.KEY_ALL_ACCESS)
+            
+            if ativar:
+                # Se deve ativar, obtém o caminho do executável Python/Anki atual
+                exe_path = f'"{sys.executable}"'
+                # Grava o valor no registro como uma string (REG_SZ)
+                winreg.SetValueEx(key, StartupManager.APP_NAME, 0, winreg.REG_SZ, exe_path)
+            else:
+                # Se deve desativar, tenta excluir o valor do registro
+                try:
+                    winreg.DeleteValue(key, StartupManager.APP_NAME)
+                except FileNotFoundError:
+                    # Se o valor já não existe, ignora o erro
+                    pass
+            
+            # Fecha a chave de registro para efetivar as alterações
+            winreg.CloseKey(key)
+        except Exception as e:
+            # Em caso de erro, imprime no console (útil para debug)
+            print(f"Erro ao configurar registro: {e}")
+
 class DialogoConfiguracoes(QDialog):
     """
-    Janela de opções acessível pelo menu Ferramentas.
-    Gerencia a interface gráfica para alteração das preferências do usuário.
+    Janela de diálogo para configuração das preferências do usuário.
     """
     
     def __init__(self):
-        # Inicializa a janela herdando as propriedades do Anki (mw)
+        # Inicializa a classe base QDialog, definindo a janela principal como pai
         super().__init__(mw)
+        # Define o título da janela usando a tradução
         self.setWindowTitle(tr("nome_menu"))
         
-        # Carrega a configuração atual para a memória
+        # Carrega as configurações atuais do arquivo JSON
         self.configuracao = mw.addonManager.getConfig(__name__)
         
-        # Constrói os elementos visuais
+        # Constrói e organiza os widgets da interface
         self.configurar_interface()
 
     def configurar_interface(self):
-        """Monta o layout, cria os grupos, dropdowns e botões."""
+        """
+        Cria os grupos, layouts e controles da interface gráfica.
+        """
+        # Layout vertical principal que conterá todos os grupos
         layout_principal = QVBoxLayout()
 
-        # --- Grupo: Comportamento ---
+        # --- Grupo: Comportamento da Janela ---
         grupo_comportamento = QGroupBox(tr("grupo_comportamento"))
         formulario_comp = QFormLayout()
 
-        # Dropdown para Ação ao Fechar (Botão X)
+        # Cria combobox para a ação de fechar
         self.combo_fechar = QComboBox()
         self.combo_fechar.addItem(tr("opcao_bandeja"), ACAO_BANDEJA)
         self.combo_fechar.addItem(tr("opcao_sair"), ACAO_SAIR)
         
-        # Define a seleção atual baseada na config salva
+        # Define o item selecionado com base na configuração salva
         indice_atual = self.combo_fechar.findData(self.configuracao.get("acao_ao_fechar"))
         self.combo_fechar.setCurrentIndex(indice_atual)
 
-        # Dropdown para Ação ao Minimizar (Botão _)
+        # Cria combobox para a ação de minimizar
         self.combo_minimizar = QComboBox()
         self.combo_minimizar.addItem(tr("opcao_bandeja"), ACAO_BANDEJA)
         self.combo_minimizar.addItem(tr("opcao_padrao"), ACAO_PADRAO)
         
-        # Define a seleção atual
+        # Define o item selecionado para minimizar
         indice_min = self.combo_minimizar.findData(self.configuracao.get("acao_ao_minimizar"))
         self.combo_minimizar.setCurrentIndex(indice_min)
 
-        # Adiciona os campos ao formulário
+        # Adiciona as linhas ao layout de formulário
         formulario_comp.addRow(tr("lbl_fechar"), self.combo_fechar)
         formulario_comp.addRow(tr("lbl_minimizar"), self.combo_minimizar)
-        grupo_comportamento.setLayout(formulario_comp)
         
+        # Define o layout do grupo
+        grupo_comportamento.setLayout(formulario_comp)
         layout_principal.addWidget(grupo_comportamento)
 
         # --- Grupo: Sincronização ---
         grupo_sinc = QGroupBox(tr("grupo_sinc"))
         layout_sinc = QVBoxLayout()
         
-        # Checkbox para habilitar sincronização ao minimizar
+        # Checkbox para sincronização
         self.check_sincronizar = QCheckBox(tr("chk_sincronizar"))
         self.check_sincronizar.setChecked(self.configuracao.get("sincronizar_na_bandeja"))
         
@@ -195,10 +262,24 @@ class DialogoConfiguracoes(QDialog):
         grupo_inicio = QGroupBox(tr("grupo_inicio"))
         layout_inicio = QVBoxLayout()
         
-        # Checkbox para iniciar minimizado
+        # Checkbox: Iniciar com o Windows
+        # O estado inicial é verificado diretamente no registro do sistema
+        self.check_iniciar_sistema = QCheckBox(tr("chk_iniciar_sistema"))
+        self.check_iniciar_sistema.setChecked(StartupManager.esta_no_inicio())
+        
+        # Checkbox: Iniciar minimizado
+        # O estado inicial vem do arquivo de configuração
         self.check_iniciar_min = QCheckBox(tr("chk_inicio_min"))
         self.check_iniciar_min.setChecked(self.configuracao.get("iniciar_minimizado"))
         
+        # Define a dependência: só permite marcar "Iniciar Minimizado" se "Iniciar com Windows" estiver ativo
+        self.check_iniciar_min.setEnabled(self.check_iniciar_sistema.isChecked())
+        
+        # Conecta o sinal de mudança do primeiro checkbox ao método de controle
+        self.check_iniciar_sistema.toggled.connect(self.ao_alternar_inicio_sistema)
+        
+        # Adiciona os checkboxes ao layout
+        layout_inicio.addWidget(self.check_iniciar_sistema)
         layout_inicio.addWidget(self.check_iniciar_min)
         grupo_inicio.setLayout(layout_inicio)
         layout_principal.addWidget(grupo_inicio)
@@ -207,13 +288,13 @@ class DialogoConfiguracoes(QDialog):
         grupo_notificacao = QGroupBox(tr("grupo_notificacao"))
         formulario_notificacao = QFormLayout()
         
-        # Checkbox global de notificações
+        # Checkbox para ativar notificações
         self.check_ativar_notif = QCheckBox(tr("chk_ativar_notif"))
         self.check_ativar_notif.setChecked(self.configuracao.get("notificacoes_ativadas"))
         
-        # Campo numérico para o intervalo em minutos
+        # Campo numérico para o intervalo (1 a 1440 minutos)
         self.spin_intervalo = QSpinBox()
-        self.spin_intervalo.setRange(1, 1440) # Limita entre 1 min e 24h
+        self.spin_intervalo.setRange(1, 1440)
         self.spin_intervalo.setValue(self.configuracao.get("intervalo_notificacao"))
         
         formulario_notificacao.addRow(self.check_ativar_notif)
@@ -221,22 +302,37 @@ class DialogoConfiguracoes(QDialog):
         grupo_notificacao.setLayout(formulario_notificacao)
         layout_principal.addWidget(grupo_notificacao)
 
-        # --- Botões de Ação ---
-        # Define os botões padrão de OK e Cancelar
+        # --- Botões de Confirmação ---
+        # Cria a caixa de botões padrão (OK e Cancelar)
         botoes = QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         caixa_botoes = QDialogButtonBox(botoes)
         
-        # Conecta os sinais de clique aos métodos da classe
+        # Conecta os botões aos métodos aceitar e rejeitar
         caixa_botoes.accepted.connect(self.ao_clicar_ok)
         caixa_botoes.rejected.connect(self.reject)
         layout_principal.addWidget(caixa_botoes)
 
+        # Define o layout principal na janela
         self.setLayout(layout_principal)
 
-    def ao_clicar_ok(self):
-        """Salva as alterações e fecha a janela."""
+    def ao_alternar_inicio_sistema(self, marcado):
+        """
+        Executado quando o usuário altera o checkbox 'Iniciar com Windows'.
+        Habilita ou desabilita o checkbox dependente 'Iniciar Minimizado'.
+        """
+        # Habilita ou desabilita o segundo checkbox
+        self.check_iniciar_min.setEnabled(marcado)
         
-        # Atualiza o dicionário de configuração com os valores da interface
+        # Se o usuário desmarcar o início com o sistema, desmarca automaticamente o início minimizado
+        if not marcado:
+            self.check_iniciar_min.setChecked(False)
+
+    def ao_clicar_ok(self):
+        """
+        Executado ao clicar em OK. Salva todas as configurações e fecha a janela.
+        """
+        
+        # Atualiza o dicionário de configuração com os dados dos widgets
         self.configuracao["acao_ao_fechar"] = self.combo_fechar.currentData()
         self.configuracao["acao_ao_minimizar"] = self.combo_minimizar.currentData()
         self.configuracao["sincronizar_na_bandeja"] = self.check_sincronizar.isChecked()
@@ -244,17 +340,22 @@ class DialogoConfiguracoes(QDialog):
         self.configuracao["notificacoes_ativadas"] = self.check_ativar_notif.isChecked()
         self.configuracao["intervalo_notificacao"] = self.spin_intervalo.value()
 
-        # Persiste os dados no disco
+        # Escreve as configurações no arquivo JSON do addon
         mw.addonManager.writeConfig(__name__, self.configuracao)
         
-        # Reinicia o serviço de notificação para aplicar o novo intervalo imediatamente
+        # Chama o gerenciador para aplicar a alteração no Registro do Windows
+        StartupManager.definir_inicio(self.check_iniciar_sistema.isChecked())
+
+        # Reinicia o temporizador de notificações para refletir possíveis mudanças de intervalo
         notificador.iniciar_temporizador()
         
-        # Fecha o diálogo retornando sucesso
+        # Fecha a janela de diálogo com resultado positivo
         self.accept()
 
 def mostrar_configuracoes():
-    """Instancia e exibe a janela de configurações de forma modal."""
+    """
+    Função auxiliar para instanciar e exibir a janela de configurações.
+    """
     dialogo = DialogoConfiguracoes()
     dialogo.exec()
 ==================================================
@@ -447,7 +548,8 @@ Este projeto foi desenvolvido para facilitar a rotina de estudos contínuos.
 FILE: tray.py
 --------------------
 # -------------------------------------------------------------------------
-# Copyright © 2025 Caio Graco Purita. Todos os direitos reservados.
+# Copyright © 2025 Caio Graco Purita.
+# Todos os direitos reservados.
 # ARQUIVO: tray.py
 # -------------------------------------------------------------------------
 from aqt import mw
@@ -460,133 +562,190 @@ class GerenciadorBandeja:
     eventos de janela para alterar o comportamento de fechar/minimizar.
     """
     def __init__(self):
+        # Inicializa a variável que guardará a referência ao ícone
         self.icone_bandeja = None
         
-        # Configura o ícone visual e seus menus
-        self.configurar_icone_bandeja()
-        
-        # Instala os ganchos nos eventos da janela principal
+        # Instala os ganchos (hooks) nos eventos da janela principal do Anki
         self.configurar_ganchos()
+        
+        # Configura o aspecto visual do ícone e seus menus
+        self.configurar_icone_bandeja()
 
     def obter_config(self, chave):
-        """Recupera um valor específico da configuração."""
+        """
+        Acessa o gerenciador de addons do Anki para ler uma configuração salva.
+        Retorna o valor associado à chave solicitada.
+        """
         return mw.addonManager.getConfig(__name__).get(chave)
 
     def configurar_icone_bandeja(self):
-        """Cria o objeto QSystemTrayIcon e define suas ações."""
+        """
+        Cria o objeto QSystemTrayIcon, define o ícone visual e constrói
+        o menu de contexto que aparece ao clicar com o botão direito.
+        """
         
-        # Cria o ícone associado à janela principal
+        # Verifica se o ícone já existe para evitar recriação desnecessária
+        if self.icone_bandeja:
+            return
+
+        # Cria a instância do ícone de bandeja associada à janela principal
         self.icone_bandeja = QSystemTrayIcon(mw)
-        self.icone_bandeja.setIcon(QIcon(":/icons/anki.png"))
+        
+        # Utiliza o próprio ícone da janela do Anki para manter a consistência visual
+        self.icone_bandeja.setIcon(mw.windowIcon())
+        
+        # Define o texto que aparece quando o mouse repousa sobre o ícone
         self.icone_bandeja.setToolTip(DICA_BANDEJA)
         
-        # Cria o menu de contexto (clique direito)
+        # Cria o menu de contexto (clique com botão direito)
         menu = QMenu()
         
-        # Opção para restaurar a janela
+        # Cria a ação para restaurar a janela principal
         acao_mostrar = QAction("Abrir Anki", menu)
+        # Conecta o disparo da ação ao método que mostra a janela
         acao_mostrar.triggered.connect(self.mostrar_janela)
+        # Adiciona a ação ao menu
         menu.addAction(acao_mostrar)
         
-        # Opção para forçar sincronização
+        # Cria a ação para forçar a sincronização
         acao_sinc = QAction("Sincronizar", menu)
+        # Conecta diretamente ao método nativo de sincronização do Anki
         acao_sinc.triggered.connect(lambda: mw.onSync())
+        # Adiciona a ação ao menu
         menu.addAction(acao_sinc)
 
+        # Adiciona uma linha separadora visual no menu
         menu.addSeparator()
 
-        # Opção para encerrar o aplicativo
+        # Cria a ação para encerrar o aplicativo completamente
         acao_sair = QAction("Sair Totalmente", menu)
+        # Conecta ao método que fecha o programa
         acao_sair.triggered.connect(self.forcar_saida)
+        # Adiciona a ação ao menu
         menu.addAction(acao_sair)
 
-        # Associa o menu ao ícone
+        # Atribui o menu criado ao ícone da bandeja
         self.icone_bandeja.setContextMenu(menu)
         
-        # Monitora cliques no ícone (esquerdo/duplo clique)
+        # Conecta o evento de clique (esquerdo ou duplo) ao tratador de cliques
         self.icone_bandeja.activated.connect(self.ao_clicar_icone)
 
     def ao_clicar_icone(self, razao):
-        """Trata o evento de clique no ícone da bandeja."""
-        # Se for um clique de ativação (gatilho), restaura a janela
+        """
+        Recebe o motivo (reason) do clique no ícone.
+        Se for um clique de ativação (geralmente clique simples), restaura a janela.
+        """
         if razao == QSystemTrayIcon.ActivationReason.Trigger:
             self.mostrar_janela()
 
     def mostrar_janela(self):
-        """Traz o Anki de volta para a tela e foca na janela."""
+        """
+        Traz a janela do Anki de volta para a tela, restaura se estiver minimizada
+        e coloca o foco nela.
+        """
+        # Torna a janela visível
         mw.show()
         
-        # Restaura o estado da janela removendo a flag de minimizado
+        # Obtém o estado atual da janela
         estado_atual = mw.windowState()
+        
+        # Remove a flag de 'Minimizado' e adiciona a flag de 'Ativo'
         mw.setWindowState(estado_atual & ~Qt.WindowState.WindowMinimized | Qt.WindowState.WindowActive)
         
+        # Solicita ativação da janela ao sistema operacional
         mw.activateWindow()
+        # Traz a janela para o topo da pilha de janelas
         mw.raise_()
         
-        # Esconde o ícone da bandeja enquanto a janela estiver visível
-        self.icone_bandeja.hide()
+        # Oculta o ícone da bandeja, pois a janela principal já está visível
+        if self.icone_bandeja:
+            self.icone_bandeja.hide()
 
     def esconder_para_bandeja(self):
-        """Minimiza o Anki, mostra o ícone na bandeja e sincroniza se necessário."""
+        """
+        Realiza o procedimento de esconder o Anki: executa sincronia (se configurado),
+        mostra o ícone na bandeja e oculta a janela principal.
+        """
         
-        # Executa sincronização se configurado
+        # Verifica na configuração se deve sincronizar antes de esconder
         if self.obter_config("sincronizar_na_bandeja"):
             mw.onSync()
 
-        # Torna o ícone da bandeja visível
-        self.icone_bandeja.show()
+        # Garante que o ícone da bandeja esteja visível antes de sumir com a janela
+        if self.icone_bandeja:
+            self.icone_bandeja.show()
         
-        # Oculta a janela principal
+        # Oculta a janela principal do Anki
         mw.hide()
         
-        # Exibe notificação visual de confirmação
-        self.icone_bandeja.showMessage(
-            NOME_APP, 
-            "Minimizado para a bandeja.", 
-            QSystemTrayIcon.MessageIcon.Information, 
-            1000
-        )
+        # Exibe um balão de notificação informando que o programa continua rodando
+        if self.icone_bandeja:
+            self.icone_bandeja.showMessage(
+                NOME_APP, 
+                "Minimizado para a bandeja.", 
+                QSystemTrayIcon.MessageIcon.Information, 
+                1000
+            )
 
     def forcar_saida(self):
-        """Encerra a aplicação completamente."""
+        """
+        Encerra a instância da aplicação Qt, fechando o Anki definitivamente.
+        """
         mw.app.quit()
 
     # --- Tratamento de Eventos (Hooks) ---
 
     def configurar_ganchos(self):
-        """Substitui os métodos de evento padrão do Anki pelos nossos."""
+        """
+        Substitui os métodos originais de evento da janela principal (mw) pelos
+        métodos personalizados desta classe.
+        """
+        # Salva referência ao evento de fechar original
         self.evento_fechar_original = mw.closeEvent
+        # Substitui pelo nosso método
         mw.closeEvent = self.ao_evento_fechar
         
+        # Salva referência ao evento de mudança de estado original
         self.evento_mudanca_original = mw.changeEvent
+        # Substitui pelo nosso método
         mw.changeEvent = self.ao_evento_mudanca
 
     def ao_evento_fechar(self, evento):
-        """Intercepta o clique no botão 'X'."""
+        """
+        Intercepta o evento de fechamento da janela (botão X ou Alt+F4).
+        """
+        # Lê a configuração para saber qual ação tomar
         acao = self.obter_config("acao_ao_fechar")
         
         if acao == ACAO_BANDEJA:
-            # Impede o fechamento padrão e envia para a bandeja
+            # Ignora o pedido de fechamento do sistema
             evento.ignore()
+            # Executa a rotina de minimizar para a bandeja
             self.esconder_para_bandeja()
         else:
-            # Permite o fechamento padrão
+            # Se a ação for sair ou padrão, repassa para o tratamento original do Anki
             self.evento_fechar_original(evento)
 
     def ao_evento_mudanca(self, evento):
-        """Intercepta mudanças de estado (ex: minimizar)."""
+        """
+        Intercepta eventos de mudança de estado da janela (ex: minimizar, maximizar).
+        """
+        # Verifica se o tipo de evento é uma mudança de estado da janela
         if evento.type() == QEvent.Type.WindowStateChange:
-            # Verifica se a janela entrou em estado minimizado
+            # Verifica se o novo estado inclui a flag de minimizado
             if mw.windowState() & Qt.WindowState.WindowMinimized:
+                # Lê a configuração do usuário para minimização
                 acao = self.obter_config("acao_ao_minimizar")
+                
                 if acao == ACAO_BANDEJA:
-                    # Agenda a ocultação para o próximo ciclo de eventos
-                    QTimer.singleShot(0, self.esconder_para_bandeja)
+                    # Agenda a execução do escondimento para o próximo ciclo do loop de eventos.
+                    # Isso permite que o sistema operacional conclua animações pendentes.
+                    QTimer.singleShot(50, self.esconder_para_bandeja)
         
-        # Mantém o comportamento original para outros eventos
+        # Chama o tratador original para garantir que outras mudanças funcionem normalmente
         self.evento_mudanca_original(evento)
 
-# Instância global
+# Instancia o gerenciador globalmente para que inicie junto com o módulo
 gerenciador_bandeja = GerenciadorBandeja()
 ==================================================
 
@@ -621,13 +780,13 @@ def configurar_menu():
     
     # Cria a ação no menu com o texto traduzido
     acao = QAction(tr("nome_menu"), mw)
-    
-    # Conecta o clique à função que abre a janela
-    acao.triggered.connect(mostrar_configuracoes)
-    
-    # Adiciona a ação ao menu Tools (Ferramentas) da janela principal
-    mw.form.menuTools.addAction(acao)
 
+        # Conecta o clique à função que abre a janela
+    acao.triggered.connect(mostrar_configuracoes)
+
+        # Adiciona a ação ao menu Tools (Ferramentas) da janela principal
+    mw.form.menuTools.addAction(acao)
+    
 # --- Registro dos Ganchos (Start) ---
 
 # Adiciona nossa função à lista de coisas a fazer quando o perfil abrir
@@ -645,14 +804,15 @@ traducoes = {
     "nome_menu": "Anki Tray Pro Options",
     "grupo_comportamento": "Window Behavior",
     "lbl_fechar": "On 'X' (Close) click:",
-    "lbl_minimizar": "On minimize (_):",
+    "lbl_minimizar": "On minimize (-):",
     "opcao_bandeja": "Minimize to Tray",
     "opcao_sair": "Quit Anki",
     "opcao_padrao": "Standard (Taskbar)",
     "grupo_sinc": "Synchronization",
     "chk_sincronizar": "Sync before minimizing to tray",
     "grupo_inicio": "Startup",
-    "chk_inicio_min": "Start Anki minimized",
+    "chk_iniciar_sistema": "Start Anki with Windows",
+    "chk_inicio_min": "Start Anki minimized to tray",
     "grupo_notificacao": "Notifications",
     "chk_ativar_notif": "Enable due card notifications",
     "lbl_intervalo": "Check every (minutes):",
@@ -665,19 +825,19 @@ FILE: lang\pt.py
 --------------------
 # Traduções em Português
 # A variável deve se chamar 'traducoes' para o __init__.py encontrar.
-
 traducoes = {
     "nome_menu": "Opções do Anki Tray Pro",
     "grupo_comportamento": "Comportamento da Janela",
     "lbl_fechar": "Ao clicar no 'X' (Fechar):",
-    "lbl_minimizar": "Ao minimizar (_):",
+    "lbl_minimizar": "Ao minimizar (-):",
     "opcao_bandeja": "Ir para a Bandeja (Tray)",
     "opcao_sair": "Sair do Anki",
     "opcao_padrao": "Padrão (Barra de Tarefas)",
     "grupo_sinc": "Sincronização",
     "chk_sincronizar": "Sincronizar ao enviar para o Tray",
     "grupo_inicio": "Inicialização",
-    "chk_inicio_min": "Iniciar o Anki minimizado",
+    "chk_iniciar_sistema": "Iniciar Anki junto com o Windows",
+    "chk_inicio_min": "Iniciar o Anki minimizado na bandeja",
     "grupo_notificacao": "Notificações",
     "chk_ativar_notif": "Ativar notificações de revisão",
     "lbl_intervalo": "Verificar a cada (minutos):",
