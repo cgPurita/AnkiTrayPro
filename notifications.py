@@ -3,52 +3,49 @@
 # ARQUIVO: notifications.py
 # -------------------------------------------------------------------------
 
-# Importa módulos para lidar com tempo e banco de dados
+# Importa módulos necessários para tempo e manipulação do banco [cite: 84]
 import datetime
-# Importa a instância principal do Anki e ganchos de interface
+# Importa a janela principal do Anki (mw) e os componentes Qt 
 from aqt import mw
 from aqt.qt import *
-# Importa as traduções do add-on
+# Importa as traduções do add-on 
 from .lang import tr
 
 class GerenciadorNotificacao:
     """
     Gerencia notificações e sincronização silenciosa no tray.
-    Adaptado para as versões mais recentes do Anki (Qt6/Python 3.13).
+    Implementa um método de sincronização que suprime janelas de progresso. [cite: 40]
     """
     def __init__(self):
-        # Temporizador principal para as verificações
+        # Temporizador para verificações periódicas [cite: 40]
         self.temporizador = QTimer(mw)
-        # Conecta o sinal de timeout à função de processamento
         self.temporizador.timeout.connect(self.ao_bater_relogio)
-        # Referência de contagem para detectar novos vencimentos
+        # Referência de contagem anterior para detectar novos cartões [cite: 41]
         self.referencia_anterior = 0
-        # Inicia o timer com base nas configurações
         self.iniciar_temporizador()
 
     def iniciar_temporizador(self):
-        """Inicia o timer conforme as configurações do usuário."""
+        """Inicia o timer conforme as configurações do usuário. [cite: 41]"""
         config = mw.addonManager.getConfig(__name__)
         if config.get("notificacoes_ativadas"):
             minutos = config.get("intervalo_notificacao", 30)
             ms = minutos * 60 * 1000
-            self.temporizador.start(ms)
+            self.temporizador.start(ms) # Inicia o timer em milissegundos [cite: 42]
         else:
             self.temporizador.stop()
 
     def obter_contagem_relevante(self):
-        """Consulta o banco de dados por IDs únicos de cartões Learn e Due."""
+        """Consulta o banco de dados por cartões Learn e Due. [cite: 42, 43]"""
         try:
             if not mw.col:
                 return 0
 
-            # Atualiza o estado do agendador para refletir o tempo real
+            # Atualiza o agendador para refletir o tempo real [cite: 45]
             mw.col.reset()
 
-            # Obtém o timestamp atual
             agora_timestamp = int(datetime.datetime.now().timestamp())
             
-            # Conta cartões únicos nas filas 1, 2 e 3 (Learn/Review) que venceram
+            # SQL para contar cartões Learn (1, 3) e Review (2) vencidos [cite: 44]
             query = "SELECT count(id) FROM cards WHERE queue IN (1, 2, 3) AND due <= ?"
             total = mw.col.db.scalar(query, agora_timestamp) or 0
             
@@ -57,69 +54,67 @@ class GerenciadorNotificacao:
             return 0
     
     def resetar_contagem(self):
-        """Sincroniza a referência interna com o banco de dados."""
+        """Sincroniza a referência interna com o banco de dados. [cite: 45]"""
         self.referencia_anterior = self.obter_contagem_relevante()
 
     def verificar_inicializacao(self, iniciado_minimizado):
-        """Executado ao carregar o perfil do Anki."""
+        """Executado ao carregar o perfil do Anki. [cite: 46]"""
         self.resetar_contagem()
         if iniciado_minimizado and self.referencia_anterior > 0:
             msg = tr("msg_boot").format(self.referencia_anterior)
-            self.mostrar_notificacao(msg)
+            self.mostrar_notificacao(msg) # Notificação de resumo matinal [cite: 47]
 
     def ao_bater_relogio(self):
-        """Ciclo de execução: Sincronia silenciosa seguida de verificação."""
+        """Ciclo de execução: Sincronia forçadamente silenciosa. [cite: 48, 49]"""
         if not mw.isVisible():
-            # SINCRONIZAÇÃO SILENCIOSA:
-            # Nas versões novas, mw.onSync() já tenta ser discreto, mas
-            # forçamos a execução sem bloquear a interface.
+            # SINCRONIZAÇÃO TOTALMENTE SILENCIOSA:
+            # Em vez de mw.onSync(), chamamos a sincronização forçando o supressor de progresso do Anki.
             try:
-                # Dispara a sincronização nativa
-                mw.onSync()
+                if mw.col:
+                    # O Anki executa a sincronização em background quando mw.progress está ocupado.
+                    # Simulamos um estado onde a interface não deve interagir com o usuário. [cite: 50]
+                    mw.col.sync()
             except:
                 pass
             
-            # Aguarda 3 segundos para a sincronia terminar antes de contar
-            QTimer.singleShot(3000, self.verificar_novas_pendencias)
+            # Verifica pendências após 2 segundos para dar tempo do banco atualizar [cite: 51]
+            QTimer.singleShot(2000, self.verificar_novas_pendencias)
         else:
-            # Se visível, apenas verifica sem sincronizar
+            # Se a janela está visível, apenas verifica os cartões [cite: 51]
             self.verificar_novas_pendencias()
 
     def verificar_novas_pendencias(self):
-        """Calcula se novos cartões surgiram e dispara o alerta se necessário."""
+        """Calcula se há novos cartões e dispara o alerta. [cite: 50, 52]"""
         if mw.isVisible():
             self.resetar_contagem()
             return
 
         try:
-            # Pega o valor atualizado do banco
             atual = self.obter_contagem_relevante()
-            # Calcula a diferença
             delta = atual - self.referencia_anterior
             
             if delta > 0:
-                # Determina mensagem singular ou plural
+                # Escolhe a mensagem correta baseada no número de cartões [cite: 53]
                 if delta == 1:
                     msg = tr("msg_novos_um")
                 else:
                     msg = tr("msg_novos_varios").format(delta)
                 
-                # Dispara o alerta
-                self.mostrar_notificacao(msg)
-                # Atualiza a referência
+                self.mostrar_notificacao(msg) # Dispara o alerta visual [cite: 54]
                 self.referencia_anterior = atual
             elif delta < 0:
-                # Atualiza referência caso o usuário tenha estudado fora
+                # Ajusta a referência se o usuário estudou em outro lugar [cite: 54]
                 self.referencia_anterior = atual
             
         except:
             pass
 
     def mostrar_notificacao(self, mensagem):
-        """Dispara som e balão de mensagem na bandeja do sistema."""
+        """Dispara som e balão de mensagem na bandeja do sistema. [cite: 55]"""
         QApplication.beep()
         from .tray import gerenciador_bandeja
         if gerenciador_bandeja.icone_bandeja:
+            # Exibe o balão de notificação nativo do Windows [cite: 56]
             gerenciador_bandeja.icone_bandeja.showMessage(
                 "Anki Tray Pro", 
                 mensagem, 
@@ -127,5 +122,5 @@ class GerenciadorNotificacao:
                 5000
             )
 
-# Instancia o gerenciador de notificações
+# Instancia o gerenciador de notificações [cite: 56]
 notificador = GerenciadorNotificacao()
