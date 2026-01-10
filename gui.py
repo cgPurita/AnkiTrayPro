@@ -24,9 +24,6 @@ class StartupManager:
 
     @staticmethod
     def _obter_pasta_startup_real():
-        """
-        Descobre a pasta de inicialização real do usuário via Registro.
-        """
         try:
             chave_shell = r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders"
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, chave_shell) as key:
@@ -45,13 +42,9 @@ class StartupManager:
 
     @staticmethod
     def _obter_executavel_anki():
-        """
-        Define qual .exe o atalho vai abrir.
-        Prioridade: 1. Pastas Padrão -> 2. Registro -> 3. Processo Atual
-        """
         caminho_atual = os.path.abspath(sys.executable)
         
-        # 1. Pastas Padrão (Prioridade Máxima)
+        # 1. Pastas Padrão
         locais = []
         if os.getenv('LOCALAPPDATA'):
             locais.append(os.path.join(os.getenv('LOCALAPPDATA'), r"Programs\Anki\anki.exe"))
@@ -64,7 +57,7 @@ class StartupManager:
             if os.path.exists(path):
                 return path
 
-        # 2. Registro (Fallback secundário)
+        # 2. Registro
         try:
             chave = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\Anki"
             for hkey in [winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE]:
@@ -77,7 +70,6 @@ class StartupManager:
                 except: pass
         except: pass
 
-        # 3. Fallback final
         return caminho_atual
 
     @staticmethod
@@ -103,24 +95,38 @@ class StartupManager:
             raise e
 
     @staticmethod
+    def verificar_integridade():
+        """
+        Método de Auto-Cura:
+        Verifica se o arquivo run_minimized.vbs existe.
+        Se não existir (foi apagado ou é instalação nova), recria ele imediatamente.
+        """
+        try:
+            base_dir = os.path.dirname(__file__)
+            vbs_path = os.path.join(base_dir, StartupManager.VBS_NAME)
+            
+            # Se o arquivo sumiu, recria
+            if not os.path.exists(vbs_path):
+                exe_anki = StartupManager._obter_executavel_anki()
+                StartupManager._gerar_script_wrapper(exe_anki)
+        except:
+            pass
+
+    @staticmethod
     def criar_atalho(caminho_exe, caminho_link, iniciar_minimizado):
         try:
             pasta_link = os.path.dirname(caminho_link)
             if not os.path.exists(pasta_link):
                 os.makedirs(pasta_link)
 
-            # Se o usuário quer iniciar minimizado, usamos o WRAPPER VBS
             if iniciar_minimizado:
                 alvo_final = StartupManager._gerar_script_wrapper(caminho_exe)
-                
                 target = os.path.join(os.getenv('SystemRoot'), "System32", "wscript.exe")
-                # Aspas duplas escapadas para o VBScript aceitar o caminho com espaços
                 args = f'""{alvo_final}""'
                 icon = caminho_exe 
                 desc = "Anki Tray Pro (Minimizado)"
                 window_style = 7 
             else:
-                # Modo normal: atalho direto
                 target = caminho_exe
                 args = "" if "python" not in os.path.basename(caminho_exe).lower() else "-m aqt"
                 icon = target
@@ -143,7 +149,6 @@ class StartupManager:
                 file.write(script_gen)
             
             cscript = os.path.join(os.getenv('SystemRoot'), "System32", "cscript.exe")
-            # Executa sem janela
             subprocess.run([cscript, '//Nologo', gen_path], check=True, creationflags=0x08000000)
             
             if os.path.exists(gen_path):
