@@ -1,5 +1,0 @@
-[2026-01-10 15:52:06] AÇÃO: Minimizando para a bandeja.
-[2026-01-10 15:52:06] ESTADO ANTERIOR: review
-[2026-01-10 15:52:06] Resetando da Revisão para o DeckBrowser.
-[2026-01-10 15:52:06] Iniciando sincronização automática.
-[2026-01-10 15:52:06] Agendando verificação de debug para daqui a 3 minutos.
