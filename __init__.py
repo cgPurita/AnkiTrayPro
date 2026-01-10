@@ -4,8 +4,6 @@ import aqt
 from aqt import mw
 # Importa as classes necessárias da biblioteca gráfica Qt para interface e eventos
 from aqt.qt import QAction, QMenu, QSystemTrayIcon, QIcon
-# Importa utilitários do Anki
-from aqt.utils import tooltip
 
 # Define a classe responsável pelo ícone na bandeja do sistema
 class AnkiTrayIcon(QSystemTrayIcon):
@@ -105,10 +103,26 @@ def custom_close_event(event):
 # Substitui o manipulador de evento de fechamento da janela pela função personalizada
 mw.closeEvent = custom_close_event
 
+# Função intermediária para abrir a janela de configuração do addon
+def open_config():
+    # Chama o gerenciador de addons para abrir a configuração deste módulo específico
+    mw.addonManager.toggleConfig(__name__)
+
+# Função responsável por criar o item de menu na aba Tools
+def setup_menu():
+    # Cria a ação visual com o nome que aparecerá no menu
+    action = QAction("Configurações Anki Tray Pro", mw)
+    # Conecta o clique na ação à função que abre a configuração
+    action.triggered.connect(open_config)
+    # Adiciona a ação criada ao menu Tools (Ferramentas) da janela principal
+    mw.form.menuTools.addAction(action)
+
 # Função chamada para inicializar o addon
 def init_addon():
     # Cria o ícone da bandeja imediatamente ao iniciar
     create_tray_icon()
+    # Configura e adiciona o item ao menu Tools
+    setup_menu()
 
 # Adiciona a função de inicialização ao gancho de abertura de perfil do Anki
 aqt.gui_hooks.profile_did_open.append(init_addon)
