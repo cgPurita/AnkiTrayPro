@@ -1,173 +1,156 @@
 # -------------------------------------------------------------------------
-# Copyright © 2025 Caio Graco Purita.
-# Todos os direitos reservados.
+# Copyright © 2025 Caio Graco Purita. Todos os direitos reservados.
 # ARQUIVO: tray.py
 # -------------------------------------------------------------------------
 
-# Importa a janela principal do Anki (MainWindow) através do objeto 'mw'
+# Importa a janela principal do Anki através do objeto global 'mw'
 from aqt import mw
-# Importa componentes da interface gráfica Qt (botões, menus, ícones, ações)
+# Importa as classes necessárias da biblioteca Qt para interface gráfica
 from aqt.qt import *
-# Importa as constantes definidas no arquivo consts.py (ex: chaves de configuração)
+# Importa as constantes globais do projeto (como ACAO_BANDEJA)
 from .consts import *
-# Importa a função de tradução para suportar múltiplos idiomas
+# Importa a função de tradução para suporte a múltiplos idiomas
 from .lang import tr
 
 class GerenciadorBandeja:
     """
-    Classe responsável por gerenciar a interação do add-on com a bandeja do sistema (System Tray).
-    Controla o ícone, o menu de contexto e as ações de minimizar/restaurar.
+    Gerencia a interação com a bandeja do sistema (System Tray).
+    Controla a visibilidade da janela e o ícone de segundo plano.
     """
     def __init__(self):
-        # Inicializa a variável que guardará a referência ao ícone da bandeja como Nula
+        # Inicializa a referência do ícone como nula
         self.icone_bandeja = None
-        # Define uma flag para diferenciar o fechamento real do programa da minimização
+        # Flag para permitir o fechamento real do aplicativo
         self.fechamento_real = False
-        # Chama o método que substitui os eventos padrões de fechar janela do Anki
+        # Configura os ganchos (hooks) de fechamento da janela principal
         self.configurar_ganchos()
-        # Chama o método que cria visualmente o ícone na bandeja do sistema
+        # Cria e configura o ícone na área de notificação do Windows
         self.configurar_icone_bandeja()
 
     def obter_config(self, chave):
-        # Acessa o gerenciador de configurações do Anki para ler uma chave específica deste add-on
+        # Busca uma configuração específica no gerenciador de complementos do Anki
         return mw.addonManager.getConfig(__name__).get(chave)
 
     def configurar_icone_bandeja(self):
-        # Se o ícone já estiver criado, não faz nada para evitar duplicação e erros de memória
+        """
+        Cria o ícone na bandeja, define o menu de contexto e o tooltip traduzido.
+        """
+        # Evita a criação duplicada do ícone
         if self.icone_bandeja: return
         
-        # Cria uma nova instância de ícone de bandeja vinculada à janela principal (mw)
+        # Cria o objeto do ícone vinculado à janela principal
         self.icone_bandeja = QSystemTrayIcon(mw)
-        # Define a imagem do ícone usando o mesmo ícone da janela principal do Anki
+        # Define o ícone visual usando o ícone oficial do Anki
         self.icone_bandeja.setIcon(mw.windowIcon())
-        # Define o texto que aparece ao passar o mouse sobre o ícone (Tooltip)
-        self.icone_bandeja.setToolTip(DICA_BANDEJA)
         
-        # Cria um menu de contexto (o menu que abre ao clicar com botão direito no ícone)
+        # DEFINE O TOOLTIP USANDO A TRADUÇÃO VARIÁVEL
+        # O texto agora depende do idioma configurado no perfil do usuário
+        self.icone_bandeja.setToolTip(tr("tooltip_tray"))
+        
+        # Cria o menu que aparece ao clicar com o botão direito no ícone
         menu = QMenu()
         
-        # Cria a ação de "Abrir" ou "Mostrar" o Anki no menu
+        # Ação para restaurar a janela principal
         acao_mostrar = QAction(tr("menu_abrir"), menu)
-        # Conecta o clique dessa ação à função 'mostrar_janela'
         acao_mostrar.triggered.connect(self.mostrar_janela)
-        # Adiciona essa ação ao menu visível
         menu.addAction(acao_mostrar)
         
-        # Cria a ação de "Sincronizar" diretamente pela bandeja
+        # Ação para forçar uma sincronização manual
         acao_sinc = QAction(tr("menu_sincronizar"), menu)
-        # Conecta o clique a uma função lambda que chama a sincronização nativa do Anki
         acao_sinc.triggered.connect(lambda: mw.onSync())
-        # Adiciona essa ação ao menu visível
         menu.addAction(acao_sinc)
 
-        # Adiciona uma linha separadora visual no menu para organizar as opções
+        # Divisor visual no menu
         menu.addSeparator()
 
-        # Cria a ação de "Sair Totalmente" (encerrar o processo do Anki)
+        # Ação para encerrar o Anki definitivamente
         acao_sair = QAction(tr("menu_sair_total"), menu)
-        # Conecta o clique à função 'forcar_saida' que encerra o app
         acao_sair.triggered.connect(self.forcar_saida)
-        # Adiciona essa ação ao menu visível
         menu.addAction(acao_sair)
 
-        # Define o menu criado como o menu de contexto oficial do ícone da bandeja
+        # Atribui o menu ao ícone e conecta o clique do botão esquerdo
         self.icone_bandeja.setContextMenu(menu)
-        
-        # Conecta o evento de clique no ícone (botão esquerdo) à função de tratamento
         self.icone_bandeja.activated.connect(self.ao_clicar_icone)
         
-        # Conecta o clique no balão de notificação para abrir o Anki automaticamente quando notificado
+        # Permite abrir a janela ao clicar em um balão de notificação
         self.icone_bandeja.messageClicked.connect(self.mostrar_janela)
 
     def ao_clicar_icone(self, razao):
-        # Verifica se a razão da ativação foi um clique simples (Trigger)
+        # Se o ícone for clicado normalmente, restaura a janela
         if razao == QSystemTrayIcon.ActivationReason.Trigger:
-            # Se foi clique simples, executa a restauração da janela do Anki
             self.mostrar_janela()
 
     def mostrar_janela(self):
         """
-        Restaura a janela do Anki, trazendo-a para frente e tornando-a visível.
+        Restaura a janela do Anki para o primeiro plano.
         """
-        # Comando Qt para tornar a janela visível caso esteja oculta
+        # Garante que a janela seja exibida e ganhe foco
         mw.show()
-        # Obtém o estado atual da janela (minimizada, maximizada, etc.)
         estado_atual = mw.windowState()
-        # Remove o estado de 'Minimizado' e adiciona o estado de 'Ativa', forçando a restauração visual
         mw.setWindowState(estado_atual & ~Qt.WindowState.WindowMinimized | Qt.WindowState.WindowActive)
-        # Tenta ativar a janela no sistema operacional (foco)
         mw.activateWindow()
-        # Traz a janela para o topo da pilha de janelas do sistema
         mw.raise_()
         
-        # Se o ícone da bandeja existe, nós o escondemos pois o app está visível na barra de tarefas
+        # Esconde o ícone da bandeja enquanto a janela está aberta
         if self.icone_bandeja: self.icone_bandeja.hide()
 
-        # Importa o notificador aqui para evitar importação circular no início do arquivo
+        # Reseta a contagem de referência do notificador
         from .notifications import notificador
-        # Reseta a contagem de notificações, pois o usuário está vendo a tela agora
         notificador.resetar_contagem()
 
     def esconder_para_bandeja(self):
         """
-        Oculta a janela principal e envia para a bandeja.
-        Inclui lógica de segurança para sair do modo de revisão se necessário.
+        Oculta a janela e garante que o usuário saia do modo de revisão.
         """
-        # --- LÓGICA DE SEGURANÇA: SAIR DA REVISÃO ---
-        # Verifica se o estado atual do Anki é 'review' (estudando cartão)
+        # [cite_start]LÓGICA DE SEGURANÇA: Se estiver respondendo um cartão, volta para a tela inicial [cite: 81]
         if mw.state == "review":
-            # Se estiver estudando, força o retorno para a tela de lista de baralhos (DeckBrowser)
+            # Força o retorno para o navegador de baralhos antes de ocultar
             mw.deckBrowser.show()
-        
-        # Verifica se a configuração de sincronização automática está ativada
+            
+        # [cite_start]Sincroniza se a opção estiver ativada nas configurações [cite: 81]
         if self.obter_config("sincronizar_na_bandeja"):
-            # Chama a sincronização do Anki antes de esconder
             mw.onSync()
             
-        # Se o ícone da bandeja estiver configurado, mostra ele agora para o usuário não perder o acesso
+        # [cite_start]Exibe o ícone na bandeja e oculta a janela principal [cite: 81]
         if self.icone_bandeja: self.icone_bandeja.show()
-        
-        # Esconde a janela principal do Anki da barra de tarefas e da tela
         mw.hide()
 
-        # Importa o notificador localmente
+        # [cite_start]Atualiza o notificador para considerar o estado atual como "visto" [cite: 82]
         from .notifications import notificador
-        # Reseta a contagem de notificações, definindo o estado atual como "visto"
         notificador.resetar_contagem()
 
     def forcar_saida(self):
-        # Garante uma sincronização final dos dados antes de fechar o programa
+        """
+        Sincroniza e encerra o aplicativo completamente.
+        """
         mw.onSync()
-        # Marca a flag de fechamento real como Verdadeira para ignorar o gancho de minimização
         self.fechamento_real = True
-        # Chama o fechamento da janela principal (que agora não será interceptado)
         mw.close()
 
     def configurar_ganchos(self):
-        # Salva o evento original de fechamento do Anki para poder chamá-lo depois se necessário
+        """
+        Intercepta o evento de fechamento da janela principal.
+        """
         self.evento_fechar_original = mw.closeEvent
-        # Substitui o evento de fechar do Anki pelo nosso método personalizado 'ao_evento_fechar'
         mw.closeEvent = self.ao_evento_fechar
 
     def ao_evento_fechar(self, evento):
-        # Verifica se é um fechamento real (solicitado pelo menu "Sair Totalmente")
+        """
+        Decide se o aplicativo deve fechar ou ir para a bandeja.
+        """
         if self.fechamento_real:
-            # Chama o evento original e permite que o Anki feche normalmente
             self.evento_fechar_original(evento)
             return
         
-        # Obtém a configuração do usuário sobre o que fazer ao fechar (Tray ou Quit)
+        # [cite_start]Lê a preferência do usuário (Bandeja ou Sair) [cite: 83]
         acao = self.obter_config("acao_ao_fechar")
-        
-        # Se a ação configurada for enviar para a bandeja (constante ACAO_BANDEJA)
         if acao == ACAO_BANDEJA:
-            # Ignora o evento de fechamento (impede o programa de encerrar o processo)
+            # Cancela o fechamento e apenas oculta a janela
             evento.ignore()
-            # Chama nossa função de minimizar para a bandeja
             self.esconder_para_bandeja()
         else:
-            # Se a configuração for sair ou padrão, executa o fechamento original
+            # Executa o fechamento padrão do Anki
             self.evento_fechar_original(evento)
 
-# Instancia o gerenciador de bandeja globalmente para que ele comece a funcionar ao carregar o add-on
+# Instancia o objeto global para ativar o gerenciamento da bandeja
 gerenciador_bandeja = GerenciadorBandeja()

@@ -27,5 +27,6 @@ traducoes = {
     # Notificações
     "msg_boot": "Olá! Você tem {} cartões para estudar hoje.",
     "msg_novos_um": "Hora de revisar! 1 cartão venceu agora.",
-    "msg_novos_varios": "Hora de revisar! {} cartões venceram agora."
+    "msg_novos_varios": "Hora de revisar! {} cartões venceram agora.",
+    "tooltip_tray": "O Anki está rodando em segundo plano"
 }
