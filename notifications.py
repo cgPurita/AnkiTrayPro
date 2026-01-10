@@ -13,8 +13,7 @@ from .lang import tr
 class GerenciadorNotificacao:
     """
     Gerencia as notificações inteligentes.
-    Usa a árvore de baralhos (Deck Tree) para contar pendências globais,
-    exatamente como visto na tela inicial do Anki.
+    Força a atualização do agendador e usa a árvore de baralhos para contagem global.
     """
     def __init__(self):
         self.caminho_log = os.path.join(os.path.dirname(__file__), "debug_log.txt")
@@ -45,43 +44,42 @@ class GerenciadorNotificacao:
     def obter_contagem_relevante(self):
         """
         Percorre a árvore de baralhos para somar Review + Learn de TODA a coleção.
-        Ignora cartões Novos (New).
+        CRUCIAL: Força o reset do scheduler antes para atualizar cartões de tempo (Learn).
         """
         try:
             if not mw.col:
                 return 0
 
-            # Obtém a árvore completa de baralhos (igual à tela 'Decks')
-            # deck_due_tree() retorna uma lista de nós.
+            # --- O PULO DO GATO ---
+            # Força o Anki a recalcular as filas de 'Learn' baseadas no tempo atual.
+            # Sem isso, ele acha que o tempo parou quando foi minimizado.
+            mw.col.reset()
+
+            # Obtém a árvore completa de baralhos
             arvore = mw.col.sched.deck_due_tree()
             
             total_learn = 0
             total_review = 0
-            total_new = 0 # Contamos só para logar, mas não usamos na soma final
+            total_new = 0
             
             # Função recursiva para somar os totais da árvore
             def somar_no(no):
                 nonlocal total_learn, total_review, total_new
-                # A estrutura do nó varia levemente entre versões, mas geralmente:
-                # new_count, learn_count, review_count são atributos ou índices.
-                # No Anki moderno (Qt6), são atributos do objeto.
                 
                 total_new += getattr(no, 'new_count', 0)
                 total_learn += getattr(no, 'learn_count', 0)
                 total_review += getattr(no, 'review_count', 0)
                 
-                # Percorre os filhos (sub-baralhos)
                 for filho in no.children:
                     somar_no(filho)
 
-            # Executa a soma em todos os nós raiz
             for no_raiz in arvore:
                 somar_no(no_raiz)
 
-            # A soma que importa para o Padre: Learn (Vermelho) + Due (Verde)
+            # Soma apenas Learn e Review (Ignora New conforme solicitado)
             total_relevante = total_learn + total_review
             
-            self.registrar_log(f"SCAN GLOBAL: Novos(Ignorados)={total_new} | Learn={total_learn} | Due={total_review} -> TOTAL RELEVANTE={total_relevante}")
+            self.registrar_log(f"SCAN: Novos(Ignorados)={total_new} | Learn={total_learn} | Due={total_review} -> TOTAL={total_relevante}")
             
             return total_relevante
 
@@ -90,6 +88,7 @@ class GerenciadorNotificacao:
             return 0
     
     def resetar_contagem(self):
+        # Chama a contagem (que agora faz o reset interno) para pegar o valor real atual
         atual = self.obter_contagem_relevante()
         self.referencia_anterior = atual
         self.registrar_log(f"RESET: Referência atualizada para {self.referencia_anterior}.")
@@ -104,6 +103,8 @@ class GerenciadorNotificacao:
         self.registrar_log("TIMER: Verificando...")
         self.verificar_novas_pendencias()
         
+        # O reset() dentro da verificação já atualiza o banco, 
+        # mas mantemos o sync se configurado.
         if not mw.isVisible():
             mw.onSync()
 
