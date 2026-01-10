@@ -1,0 +1,583 @@
+=== RAIO-X DO PROJETO: AnkiTrayPro ===
+Gerado em: 2026-01-10 00:55:46.640503
+Copyright © 2025 Caio Graco Purita
+==================================================
+
+--- ESTRUTURA DE ARQUIVOS ---
+[AnkiTrayPro/]
+    config.json
+    consts.py
+    gui.py
+    loc.py
+    manifest.json
+    notifications.py
+    tray.py
+    __init__.py
+    [lang/]
+        en.py
+        pt.py
+        __init__.py
+    [templates/]
+        [ide/]
+            [vscode/]
+                settings.json
+        [legal/]
+            CABEÇALHO_PROPRIETARIO.txt
+        [tools/]
+
+==================================================
+
+--- CONTEÚDO DOS ARQUIVOS ---
+
+FILE: config.json
+--------------------
+{
+    "action_on_close": "tray", 
+    "action_on_minimize": "tray",
+    "sync_on_tray": true,
+    "start_minimized": false,
+    "start_with_system": false,
+    "notifications_enabled": true,
+    "notification_interval": 30
+}
+==================================================
+
+FILE: consts.py
+--------------------
+# Define as ações possíveis
+ACTION_TRAY = "tray"
+ACTION_QUIT = "quit"
+ACTION_STANDARD = "standard"
+
+# Títulos e Textos
+APP_NAME = "Anki Tray Pro"
+TRAY_TOOLTIP = "Anki está rodando em segundo plano"
+MSG_UNREAD = "Você tem {} cartões para revisar!"
+==================================================
+
+FILE: gui.py
+--------------------
+from aqt import mw
+from aqt.qt import *
+from .lang import tr
+from .consts import *
+from .notifications import notifier
+
+class SettingsDialog(QDialog):
+    def __init__(self):
+        super().__init__(mw)
+        self.setWindowTitle(tr("menu_name"))
+        self.config = mw.addonManager.getConfig(__name__)
+        self.setup_ui()
+
+    def setup_ui(self):
+        layout = QVBoxLayout()
+
+        # --- Grupo: Comportamento ---
+        grp_beh = QGroupBox(tr("grp_behavior"))
+        form = QFormLayout()
+
+        # Dropdown para Ação ao Fechar
+        self.cb_close = QComboBox()
+        self.cb_close.addItem(tr("opt_tray"), ACTION_TRAY)
+        self.cb_close.addItem(tr("opt_quit"), ACTION_QUIT)
+        # self.cb_close.addItem(tr("opt_ask"), "ask") # Implementar 'Ask' é mais complexo, deixamos simples por hora
+        
+        # Seleciona o atual
+        idx = self.cb_close.findData(self.config.get("action_on_close"))
+        self.cb_close.setCurrentIndex(idx)
+
+        # Dropdown para Minimizar
+        self.cb_min = QComboBox()
+        self.cb_min.addItem(tr("opt_tray"), ACTION_TRAY)
+        self.cb_min.addItem(tr("opt_standard"), ACTION_STANDARD)
+        
+        idx_min = self.cb_min.findData(self.config.get("action_on_minimize"))
+        self.cb_min.setCurrentIndex(idx_min)
+
+        form.addRow(tr("lbl_close"), self.cb_close)
+        form.addRow(tr("lbl_minimize"), self.cb_min)
+        grp_beh.setLayout(form)
+        layout.addWidget(grp_beh)
+
+        # --- Grupo: Sincronização ---
+        grp_sync = QGroupBox(tr("grp_sync"))
+        vbox_sync = QVBoxLayout()
+        self.chk_sync = QCheckBox(tr("chk_sync"))
+        self.chk_sync.setChecked(self.config.get("sync_on_tray"))
+        vbox_sync.addWidget(self.chk_sync)
+        grp_sync.setLayout(vbox_sync)
+        layout.addWidget(grp_sync)
+
+        # --- Grupo: Inicialização ---
+        grp_start = QGroupBox(tr("grp_startup"))
+        vbox_start = QVBoxLayout()
+        self.chk_start_min = QCheckBox(tr("chk_start_min"))
+        self.chk_start_min.setChecked(self.config.get("start_minimized"))
+        vbox_start.addWidget(self.chk_start_min)
+        
+        # Obs: Iniciar com o Windows requer mexer no Registro (complexo para um script só)
+        # Deixaremos a opção visual, mas a lógica exige permissão de admin.
+        # Por segurança e brevidade, focaremos no "Start Minimized" interno do Anki.
+        
+        grp_start.setLayout(vbox_start)
+        layout.addWidget(grp_start)
+
+        # --- Grupo: Notificações ---
+        grp_not = QGroupBox(tr("grp_notify"))
+        form_not = QFormLayout()
+        
+        self.chk_notify = QCheckBox(tr("chk_enable_notify"))
+        self.chk_notify.setChecked(self.config.get("notifications_enabled"))
+        
+        self.spin_interval = QSpinBox()
+        self.spin_interval.setRange(1, 1440) # 1 min a 24h
+        self.spin_interval.setValue(self.config.get("notification_interval"))
+        
+        form_not.addRow(self.chk_notify)
+        form_not.addRow(tr("lbl_interval"), self.spin_interval)
+        grp_not.setLayout(form_not)
+        layout.addWidget(grp_not)
+
+        # --- Botões OK/Cancelar ---
+        bbox = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bbox.accepted.connect(self.on_ok)
+        bbox.rejected.connect(self.reject)
+        layout.addWidget(bbox)
+
+        self.setLayout(layout)
+
+    def on_ok(self):
+        # Salva as configurações
+        self.config["action_on_close"] = self.cb_close.currentData()
+        self.config["action_on_minimize"] = self.cb_min.currentData()
+        self.config["sync_on_tray"] = self.chk_sync.isChecked()
+        self.config["start_minimized"] = self.chk_start_min.isChecked()
+        self.config["notifications_enabled"] = self.chk_notify.isChecked()
+        self.config["notification_interval"] = self.spin_interval.value()
+
+        mw.addonManager.writeConfig(__name__, self.config)
+        
+        # Reinicia o timer de notificação com o novo tempo
+        notifier.start_timer()
+        
+        self.accept()
+
+def show_settings():
+    d = SettingsDialog()
+    d.exec_()
+==================================================
+
+FILE: loc.py
+--------------------
+from aqt import mw
+
+# Dicionário de Traduções
+# Adicione mais línguas aqui conforme necessário
+TRANSLATIONS = {
+    "pt": {
+        "menu_name": "Opções do Anki Tray Pro",
+        "grp_behavior": "Comportamento da Janela",
+        "lbl_close": "Ao clicar no 'X' (Fechar):",
+        "lbl_minimize": "Ao minimizar (_):",
+        "opt_tray": "Ir para a Bandeja (Tray)",
+        "opt_quit": "Sair do Anki",
+        "opt_ask": "Perguntar sempre",
+        "opt_standard": "Padrão (Barra de Tarefas)",
+        "grp_sync": "Sincronização",
+        "chk_sync": "Sincronizar ao enviar para o Tray",
+        "grp_startup": "Inicialização",
+        "chk_start_min": "Iniciar o Anki minimizado",
+        "chk_sys_start": "Iniciar junto com o Windows (Requer Admin)",
+        "grp_notify": "Notificações",
+        "chk_enable_notify": "Ativar notificações de revisão",
+        "lbl_interval": "Verificar a cada (minutos):",
+        "msg_due": "Você tem {} cartões para revisar!",
+        "tray_tooltip": "Anki está rodando em segundo plano"
+    },
+    "en": {
+        "menu_name": "Anki Tray Pro Options",
+        "grp_behavior": "Window Behavior",
+        "lbl_close": "On 'X' (Close) click:",
+        "lbl_minimize": "On minimize (_):",
+        "opt_tray": "Minimize to Tray",
+        "opt_quit": "Quit Anki",
+        "opt_ask": "Always Ask",
+        "opt_standard": "Standard (Taskbar)",
+        "grp_sync": "Synchronization",
+        "chk_sync": "Sync before minimizing to tray",
+        "grp_startup": "Startup",
+        "chk_start_min": "Start Anki minimized",
+        "chk_sys_start": "Start with Windows (Requires Admin)",
+        "grp_notify": "Notifications",
+        "chk_enable_notify": "Enable due card notifications",
+        "lbl_interval": "Check every (minutes):",
+        "msg_due": "You have {} cards due!",
+        "tray_tooltip": "Anki is running in background"
+    }
+}
+
+def tr(key):
+    # Pega a língua do Anki (ex: 'pt_BR', 'en_US')
+    lang = mw.pm.meta.get("defaultLang", "en")
+    
+    # Tenta pegar as duas primeiras letras (pt, en, es)
+    short_lang = lang[:2]
+    
+    # Retorna a tradução ou o fallback em inglês
+    if short_lang in TRANSLATIONS and key in TRANSLATIONS[short_lang]:
+        return TRANSLATIONS[short_lang][key]
+    else:
+        return TRANSLATIONS["en"].get(key, key)
+==================================================
+
+FILE: manifest.json
+--------------------
+{
+    "name": "Anki Tray Pro: Minimize, Sync & Notify",
+    "package": "AnkiTrayPro",
+    "conflicts": [],
+    "mod": 1678900000
+}
+==================================================
+
+FILE: notifications.py
+--------------------
+from aqt import mw
+from aqt.qt import *
+from .lang import tr
+
+class NotificationManager:
+    def __init__(self):
+        self.timer = QTimer(mw)
+        self.timer.timeout.connect(self.check_due_cards)
+        self.start_timer()
+
+    def start_timer(self):
+        config = mw.addonManager.getConfig(__name__)
+        if config.get("notifications_enabled"):
+            # Converte minutos para milissegundos
+            interval = config.get("notification_interval", 30) * 60 * 1000
+            self.timer.start(interval)
+        else:
+            self.timer.stop()
+
+    def check_due_cards(self):
+        # Só notifica se a janela NÃO estiver visível (estiver no tray)
+        if mw.isVisible():
+            return
+
+        # Pergunta ao Anki quantos cartões "due" (vencidos) existem
+        # Soma revisão + aprendizado + novos (se configurado)
+        counts = mw.col.sched.counts()
+        # counts = (new, lrn, rev)
+        total_due = counts[1] + counts[2] # Ignorando 'novos' para não spammar, mas pode somar counts[0]
+
+        if total_due > 0:
+            self.show_notification(total_due)
+
+    def show_notification(self, count):
+        # Toca um som padrão do sistema
+        QApplication.beep()
+        
+        # Mostra o balãozinho no Tray
+        # Recuperamos o ícone lá do gerenciador principal
+        from .tray import tray_manager
+        if tray_manager.tray_icon:
+            msg = tr("msg_due").format(count)
+            tray_manager.tray_icon.showMessage("Anki", msg, QSystemTrayIcon.Information, 5000)
+
+# Instância global
+notifier = NotificationManager()
+==================================================
+
+FILE: tray.py
+--------------------
+from aqt import mw
+from aqt.qt import *
+from .consts import *
+
+class TrayManager:
+    def __init__(self):
+        self.tray_icon = None
+        self.setup_tray_icon()
+        self.setup_hooks()
+
+    def get_config(self, key):
+        # Atalho para ler configurações
+        return mw.addonManager.getConfig(__name__).get(key)
+
+    def setup_tray_icon(self):
+        # Cria o ícone mas deixa invisível por enquanto
+        self.tray_icon = QSystemTrayIcon(mw)
+        self.tray_icon.setIcon(QIcon(":/icons/anki.png"))
+        self.tray_icon.setToolTip(TRAY_TOOLTIP)
+        
+        # Menu do botão direito no ícone
+        menu = QMenu()
+        
+        # Ação: Mostrar Anki
+        action_show = QAction("Abrir Anki", menu)
+        action_show.triggered.connect(self.show_window)
+        menu.addAction(action_show)
+        
+        # Ação: Sincronizar Agora (Extra útil)
+        action_sync = QAction("Sincronizar", menu)
+        action_sync.triggered.connect(lambda: mw.onSync())
+        menu.addAction(action_sync)
+
+        menu.addSeparator()
+
+        # Ação: Fechar de vez
+        action_quit = QAction("Sair Totalmente", menu)
+        action_quit.triggered.connect(self.force_quit)
+        menu.addAction(action_quit)
+
+        self.tray_icon.setContextMenu(menu)
+        
+        # Clique duplo ou simples para abrir
+        self.tray_icon.activated.connect(self.on_icon_click)
+
+    def on_icon_click(self, reason):
+        # Se clicar no ícone, restaura a janela
+        if reason == QSystemTrayIcon.Trigger:
+            self.show_window()
+
+    def show_window(self):
+        # Traz o Anki de volta e esconde o tray (conforme seu pedido)
+        mw.show()
+        mw.setWindowState(mw.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)
+        mw.activateWindow()
+        mw.raise_()
+        self.tray_icon.hide() # Ícone some quando janela abre
+
+    def hide_to_tray(self):
+        # Sincroniza antes se estiver configurado
+        if self.get_config("sync_on_tray"):
+            mw.onSync()
+
+        # Esconde a janela e mostra o ícone
+        self.tray_icon.show() # Ícone aparece
+        mw.hide()
+        
+        # Notificação visual (Balãozinho) opcional na hora de minimizar
+        self.tray_icon.showMessage(APP_NAME, "Minimizado para a bandeja.", QSystemTrayIcon.Information, 1000)
+
+    def force_quit(self):
+        # Fecha o Anki de verdade
+        mw.app.quit()
+
+    # --- GESTÃO DE EVENTOS (INTERCEPTAÇÃO) ---
+
+    def setup_hooks(self):
+        # Substitui a função de fechar padrão do Anki
+        self.original_close_event = mw.closeEvent
+        mw.closeEvent = self.on_close_event
+        
+        # Monitora minimização (mudança de estado)
+        self.original_change_event = mw.changeEvent
+        mw.changeEvent = self.on_change_event
+
+    def on_close_event(self, event):
+        action = self.get_config("action_on_close")
+        
+        if action == ACTION_TRAY:
+            # Ignora o fechamento e manda pro tray
+            event.ignore()
+            self.hide_to_tray()
+        else:
+            # Deixa fechar normal (ou chama o original)
+            self.original_close_event(event)
+
+    def on_change_event(self, event):
+        # Detecta se foi minimizado pelo tracinho "_"
+        if event.type() == QEvent.WindowStateChange:
+            if mw.windowState() & Qt.WindowMinimized:
+                action = self.get_config("action_on_minimize")
+                if action == ACTION_TRAY:
+                    QTimer.singleShot(0, self.hide_to_tray)
+        
+        self.original_change_event(event)
+
+# Instância global
+tray_manager = TrayManager()
+==================================================
+
+FILE: __init__.py
+--------------------
+from aqt import mw
+from aqt.qt import *
+from aqt import gui_hooks
+
+# Importa nossos módulos
+from .tray import tray_manager
+from .gui import show_settings
+from .lang import tr
+from .notifications import notifier
+
+def on_profile_loaded():
+    # Verifica se deve iniciar minimizado
+    config = mw.addonManager.getConfig(__name__)
+    if config.get("start_minimized"):
+        tray_manager.hide_to_tray()
+
+# Adiciona o item no menu Ferramentas
+def setup_menu():
+    # Cria a ação
+    action = QAction(tr("menu_name"), mw)
+    action.triggered.connect(show_settings)
+    
+    # Adiciona no menu 'Ferramentas' (Tools)
+    mw.form.menuTools.addAction(action)
+
+# Ganchos de inicialização
+gui_hooks.profile_did_open.append(on_profile_loaded)
+setup_menu()
+==================================================
+
+FILE: lang\en.py
+--------------------
+# English Translations
+# Nome da variável deve ser sempre 'translations'
+
+translations = {
+    "menu_name": "Anki Tray Pro Options",
+    "grp_behavior": "Window Behavior",
+    "lbl_close": "On 'X' (Close) click:",
+    "lbl_minimize": "On minimize (_):",
+    "opt_tray": "Minimize to Tray",
+    "opt_quit": "Quit Anki",
+    "opt_standard": "Standard (Taskbar)",
+    "grp_sync": "Synchronization",
+    "chk_sync": "Sync before minimizing to tray",
+    "grp_startup": "Startup",
+    "chk_start_min": "Start Anki minimized",
+    "grp_notify": "Notifications",
+    "chk_enable_notify": "Enable due card notifications",
+    "lbl_interval": "Check every (minutes):",
+    "msg_due": "You have {} cards due!",
+    "tray_tooltip": "Anki is running in background"
+}
+==================================================
+
+FILE: lang\pt.py
+--------------------
+# Traduções em Português
+
+translations = {
+    "menu_name": "Opções do Anki Tray Pro",
+    "grp_behavior": "Comportamento da Janela",
+    "lbl_close": "Ao clicar no 'X' (Fechar):",
+    "lbl_minimize": "Ao minimizar (_):",
+    "opt_tray": "Ir para a Bandeja (Tray)",
+    "opt_quit": "Sair do Anki",
+    "opt_standard": "Padrão (Barra de Tarefas)",
+    "grp_sync": "Sincronização",
+    "chk_sync": "Sincronizar ao enviar para o Tray",
+    "grp_startup": "Inicialização",
+    "chk_start_min": "Iniciar o Anki minimizado",
+    "grp_notify": "Notificações",
+    "chk_enable_notify": "Ativar notificações de revisão",
+    "lbl_interval": "Verificar a cada (minutos):",
+    "msg_due": "Você tem {} cartões para revisar!",
+    "tray_tooltip": "Anki está rodando em segundo plano"
+}
+==================================================
+
+FILE: lang\__init__.py
+--------------------
+import importlib
+from aqt import mw
+
+# Cache para não ficar recarregando toda hora
+_current_translations = {}
+
+def load_translations():
+    global _current_translations
+    
+    # Se já carregou, retorna
+    if _current_translations:
+        return
+
+    # 1. Descobre a língua do Anki (ex: 'pt_BR', 'en_US', 'es_ES')
+    lang_code = mw.pm.meta.get("defaultLang", "en")
+    
+    # Pega só as duas primeiras letras (pt, en, es)
+    short_lang = lang_code[:2]
+
+    # 2. Tenta carregar o módulo correspondente dinamicamente
+    try:
+        # Tenta importar: .pt, .es, etc.
+        module = importlib.import_module(f".{short_lang}", package=__name__)
+        _current_translations = module.translations
+    except ImportError:
+        # Se der erro (arquivo não existe), carrega o Inglês (fallback)
+        try:
+            module = importlib.import_module(".en", package=__name__)
+            _current_translations = module.translations
+        except ImportError:
+            # Caso extremo: nem o arquivo en.py existe
+            _current_translations = {}
+
+def tr(key):
+    """Retorna o texto traduzido para a chave."""
+    # Garante que carregou
+    if not _current_translations:
+        load_translations()
+    
+    # Retorna o valor ou a própria chave se não achar (para debug)
+    return _current_translations.get(key, f"[{key}]")
+==================================================
+
+FILE: templates\ide\vscode\settings.json
+--------------------
+{
+    "files.autoSave": "afterDelay",
+    "editor.formatOnSave": true,
+    "editor.rulers": [88, 120],
+    "editor.tabSize": 4,
+    "editor.insertSpaces": true,
+
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.black-formatter",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+        }
+    },
+
+    "files.exclude": {
+        "**/.git": true,
+        "**/.svn": true,
+        "**/.hg": true,
+        "**/CVS": true,
+        "**/.DS_Store": true,
+        "**/Thumbs.db": true,
+        "**/__pycache__": true,
+        "**/*.pyc": true,
+        "**/*.pyo": true,
+        "**/*.pyd": true,
+        ".venv": true,
+        ".pytest_cache": true,
+        ".mypy_cache": true
+    },
+
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.autoImportCompletions": true
+}
+==================================================
+
+FILE: templates\legal\CABEÇALHO_PROPRIETARIO.txt
+--------------------
+# -------------------------------------------------------------------------
+# Copyright © 2025 Caio Graco Purita. Todos os direitos reservados.
+#
+# Este arquivo é parte integrante de um software proprietário.
+# A cópia, distribuição, modificação ou engenharia reversa não autorizadas
+# são estritamente proibidas.
+#
+# Para permissões de uso ou colaboração, contacte o autor.
+# -------------------------------------------------------------------------
+
+==================================================
+

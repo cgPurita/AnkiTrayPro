@@ -1,0 +1,28 @@
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
+.venv/
+
+# --- VS Code ---
+.vscode/
+*.code-workspace
+
+# --- Anki & Builds ---
+# Ignora arquivos de empacotamento zip gerados
+*.ankiaddon
+# Ignora metadados locais que o Anki gera ao instalar manualmente
+meta.json
+
+# --- Sistema Operacional ---
+.DS_Store
+Thumbs.db
+
+# --- Logs e Temporários ---
+*.log
+tmp/

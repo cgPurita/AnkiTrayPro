@@ -1,0 +1,9 @@
+# -------------------------------------------------------------------------
+# Copyright © 2025 Caio Graco Purita. Todos os direitos reservados.
+#
+# Este arquivo é parte integrante de um software proprietário.
+# A cópia, distribuição, modificação ou engenharia reversa não autorizadas
+# são estritamente proibidas.
+#
+# Para permissões de uso ou colaboração, contacte o autor.
+# -------------------------------------------------------------------------

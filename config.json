@@ -1,0 +1,9 @@
+{
+    "acao_ao_fechar": "tray", 
+    "acao_ao_minimizar": "tray",
+    "sincronizar_na_bandeja": true,
+    "iniciar_minimizado": false,
+    "iniciar_com_sistema": false,
+    "notificacoes_ativadas": true,
+    "intervalo_notificacao": 30
+}
