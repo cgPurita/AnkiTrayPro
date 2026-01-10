@@ -14,14 +14,16 @@ from .lang import tr
 class GerenciadorNotificacao:
     """
     Gerencia notificações e sincronização silenciosa no tray.
-    Evita pop-ups intrusivos durante o uso em segundo plano.
+    Adaptado para as versões mais recentes do Anki (Qt6/Python 3.13).
     """
     def __init__(self):
         # Temporizador principal para as verificações
         self.temporizador = QTimer(mw)
+        # Conecta o sinal de timeout à função de processamento
         self.temporizador.timeout.connect(self.ao_bater_relogio)
         # Referência de contagem para detectar novos vencimentos
         self.referencia_anterior = 0
+        # Inicia o timer com base nas configurações
         self.iniciar_temporizador()
 
     def iniciar_temporizador(self):
@@ -69,19 +71,18 @@ class GerenciadorNotificacao:
         """Ciclo de execução: Sincronia silenciosa seguida de verificação."""
         if not mw.isVisible():
             # SINCRONIZAÇÃO SILENCIOSA:
-            # Desativamos temporariamente o gerenciador de progresso para evitar pop-ups
-            mw.progress.disable()
+            # Nas versões novas, mw.onSync() já tenta ser discreto, mas
+            # forçamos a execução sem bloquear a interface.
             try:
-                # Executa a sincronização nativa
+                # Dispara a sincronização nativa
                 mw.onSync()
-            finally:
-                # Reativamos imediatamente após a execução para não afetar o uso manual
-                mw.progress.enable()
+            except:
+                pass
             
-            # Aguarda a estabilização dos dados após a rede para verificar pendências
+            # Aguarda 3 segundos para a sincronia terminar antes de contar
             QTimer.singleShot(3000, self.verificar_novas_pendencias)
         else:
-            # Se visível, apenas verifica sem sincronizar (para não interromper o usuário)
+            # Se visível, apenas verifica sem sincronizar
             self.verificar_novas_pendencias()
 
     def verificar_novas_pendencias(self):
@@ -91,7 +92,9 @@ class GerenciadorNotificacao:
             return
 
         try:
+            # Pega o valor atualizado do banco
             atual = self.obter_contagem_relevante()
+            # Calcula a diferença
             delta = atual - self.referencia_anterior
             
             if delta > 0:
@@ -101,7 +104,9 @@ class GerenciadorNotificacao:
                 else:
                     msg = tr("msg_novos_varios").format(delta)
                 
+                # Dispara o alerta
                 self.mostrar_notificacao(msg)
+                # Atualiza a referência
                 self.referencia_anterior = atual
             elif delta < 0:
                 # Atualiza referência caso o usuário tenha estudado fora
