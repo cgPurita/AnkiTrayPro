@@ -16,16 +16,16 @@ from .notifications import notificador
 class StartupManager:
     """
     Gerencia a criação do atalho na pasta de inicialização do Windows.
-    Detecta o executável real do Anki e configura o modo de janela (Minimizado/Normal).
+    Utiliza um Wrapper VBS para garantir a minimização correta no boot.
     """
     
     SHORTCUT_NAME = "AnkiTrayPro_AutoStart.lnk"
+    VBS_NAME = "run_minimized.vbs"
 
     @staticmethod
     def _obter_pasta_startup_real():
         """
-        Descobre a pasta de inicialização real do usuário via Registro,
-        lidando com redirecionamentos (ex: Google Drive, OneDrive).
+        Descobre a pasta de inicialização real do usuário via Registro.
         """
         try:
             chave_shell = r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders"
@@ -44,119 +44,121 @@ class StartupManager:
         return os.path.exists(StartupManager._obter_caminho_atalho())
 
     @staticmethod
-    def _buscar_caminho_registro():
-        """Consulta o registro do Windows para encontrar a instalação do Anki."""
-        caminhos_registro = [
-            (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Uninstall\Anki"),
-            (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\Uninstall\Anki"),
-            (winreg.HKEY_LOCAL_MACHINE, r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Anki")
-        ]
-        for hkey, subkey in caminhos_registro:
-            try:
-                with winreg.OpenKey(hkey, subkey) as chave_aberta:
-                    pasta_instalacao, _ = winreg.QueryValueEx(chave_aberta, "InstallLocation")
-                    caminho_exe = os.path.join(pasta_instalacao, "anki.exe")
-                    if os.path.exists(caminho_exe):
-                        return caminho_exe
-            except:
-                continue
-        return None
-
-    @staticmethod
     def _obter_executavel_anki():
         """
         Define qual .exe o atalho vai abrir.
-        Prioridade: Processo Atual > Registro > Pastas Padrão > Fallback (Python)
+        Prioridade: 1. Pastas Padrão -> 2. Registro -> 3. Processo Atual
         """
         caminho_atual = os.path.abspath(sys.executable)
         
-        # 1. Se quem está rodando JÁ É o anki.exe (portátil ou instalado), usa ele.
-        if "python" not in os.path.basename(caminho_atual).lower():
-            return caminho_atual
-        
-        # 2. Se for Python, tenta achar pelo Registro (instalação oficial).
-        caminho_registro = StartupManager._buscar_caminho_registro()
-        if caminho_registro:
-            return caminho_registro
-
-        # 3. Se Registro falhar, verifica as pastas padrão conhecidas.
-        # Isso cobre o seu caso específico: AppData\Local\Programs\Anki\anki.exe
-        locais_padrao = []
-        
-        # Local AppData (Instalação Apenas para Mim)
+        # 1. Pastas Padrão (Prioridade Máxima)
+        locais = []
         if os.getenv('LOCALAPPDATA'):
-            locais_padrao.append(os.path.join(os.getenv('LOCALAPPDATA'), r"Programs\Anki\anki.exe"))
-            
-        # Arquivos de Programas (Instalação para Todos)
+            locais.append(os.path.join(os.getenv('LOCALAPPDATA'), r"Programs\Anki\anki.exe"))
         if os.getenv('ProgramFiles'):
-            locais_padrao.append(os.path.join(os.getenv('ProgramFiles'), r"Anki\anki.exe"))
-            
-        # Arquivos de Programas x86
+            locais.append(os.path.join(os.getenv('ProgramFiles'), r"Anki\anki.exe"))
         if os.getenv('ProgramFiles(x86)'):
-            locais_padrao.append(os.path.join(os.getenv('ProgramFiles(x86)'), r"Anki\anki.exe"))
+            locais.append(os.path.join(os.getenv('ProgramFiles(x86)'), r"Anki\anki.exe"))
 
-        for caminho in locais_padrao:
-            if os.path.exists(caminho):
-                return caminho
+        for path in locais:
+            if os.path.exists(path):
+                return path
 
-        # 4. Fallback: Se não achou NADA, usa o Python atual (com args depois)
+        # 2. Registro (Fallback secundário)
+        try:
+            chave = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\Anki"
+            for hkey in [winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE]:
+                try:
+                    with winreg.OpenKey(hkey, chave) as key:
+                        pasta, _ = winreg.QueryValueEx(key, "InstallLocation")
+                        exe = os.path.join(pasta, "anki.exe")
+                        if os.path.exists(exe):
+                            return exe
+                except: pass
+        except: pass
+
+        # 3. Fallback final
         return caminho_atual
 
     @staticmethod
-    def criar_atalho(caminho_exe, caminho_link, iniciar_minimizado=False):
+    def _gerar_script_wrapper(caminho_anki):
         """
-        Cria o atalho .lnk via VBScript.
-        Argumento 'iniciar_minimizado' define o WindowStyle.
+        Cria o script VBS intermediário que injeta a variável de ambiente.
         """
+        try:
+            base_dir = os.path.dirname(__file__)
+            vbs_path = os.path.join(base_dir, StartupManager.VBS_NAME)
+            
+            conteudo_vbs = f"""
+            Set oShell = CreateObject("WScript.Shell")
+            oShell.Environment("PROCESS")("ANKI_TRAY_STARTUP") = "1"
+            oShell.Run "{caminho_anki}", 1, False
+            """
+            
+            with open(vbs_path, "w", encoding="utf-8") as f:
+                f.write(conteudo_vbs)
+            
+            return vbs_path
+        except Exception as e:
+            raise e
+
+    @staticmethod
+    def criar_atalho(caminho_exe, caminho_link, iniciar_minimizado):
         try:
             pasta_link = os.path.dirname(caminho_link)
             if not os.path.exists(pasta_link):
                 os.makedirs(pasta_link)
 
-            args = ""
-            if "python" in os.path.basename(caminho_exe).lower():
-                args = "-m aqt"
+            # Se o usuário quer iniciar minimizado, usamos o WRAPPER VBS
+            if iniciar_minimizado:
+                alvo_final = StartupManager._gerar_script_wrapper(caminho_exe)
+                
+                target = os.path.join(os.getenv('SystemRoot'), "System32", "wscript.exe")
+                # Aspas duplas escapadas para o VBScript aceitar o caminho com espaços
+                args = f'""{alvo_final}""'
+                icon = caminho_exe 
+                desc = "Anki Tray Pro (Minimizado)"
+                window_style = 7 
+            else:
+                # Modo normal: atalho direto
+                target = caminho_exe
+                args = "" if "python" not in os.path.basename(caminho_exe).lower() else "-m aqt"
+                icon = target
+                desc = "Iniciado automaticamente pelo Anki Tray Pro"
+                window_style = 1
 
-            # WindowStyle: 7 = Minimizado, 1 = Normal (Ativo)
-            estilo_janela = 7 if iniciar_minimizado else 1
-
-            script_vbs = f"""
+            script_gen = f"""
             Set oWS = WScript.CreateObject("WScript.Shell")
-            sLinkFile = "{caminho_link}"
-            Set oLink = oWS.CreateShortcut(sLinkFile)
-            oLink.TargetPath = "{caminho_exe}"
+            Set oLink = oWS.CreateShortcut("{caminho_link}")
+            oLink.TargetPath = "{target}"
             oLink.Arguments = "{args}"
-            oLink.WorkingDirectory = "{os.path.dirname(caminho_exe)}"
-            oLink.WindowStyle = {estilo_janela}
-            oLink.Description = "Iniciado automaticamente pelo Anki Tray Pro"
+            oLink.IconLocation = "{icon},0"
+            oLink.WindowStyle = {window_style}
+            oLink.Description = "{desc}"
             oLink.Save
             """
             
-            caminho_vbs = os.path.join(os.getenv('TEMP'), "anki_shortcut_gen.vbs")
-            with open(caminho_vbs, "w", encoding="utf-8") as file:
-                file.write(script_vbs)
+            gen_path = os.path.join(os.getenv('TEMP'), "anki_shortcut_gen.vbs")
+            with open(gen_path, "w", encoding="utf-8") as file:
+                file.write(script_gen)
             
-            cscript_path = os.path.join(os.getenv('SystemRoot'), "System32", "cscript.exe")
-            CREATE_NO_WINDOW = 0x08000000
-            subprocess.run([cscript_path, '//Nologo', caminho_vbs], check=True, creationflags=CREATE_NO_WINDOW)
+            cscript = os.path.join(os.getenv('SystemRoot'), "System32", "cscript.exe")
+            # Executa sem janela
+            subprocess.run([cscript, '//Nologo', gen_path], check=True, creationflags=0x08000000)
             
-            if os.path.exists(caminho_vbs):
-                os.remove(caminho_vbs)
-                
+            if os.path.exists(gen_path):
+                os.remove(gen_path)
+
         except Exception as e:
             raise e
 
     @staticmethod
     def definir_inicio(ativar, iniciar_minimizado):
-        """
-        Cria ou remove o atalho com as configurações desejadas.
-        """
         try:
             caminho_atalho = StartupManager._obter_caminho_atalho()
             
             if ativar:
                 exe_alvo = StartupManager._obter_executavel_anki()
-                # Passa a preferência de estilo de janela
                 StartupManager.criar_atalho(exe_alvo, caminho_atalho, iniciar_minimizado)
             else:
                 if os.path.exists(caminho_atalho):
@@ -175,7 +177,6 @@ class DialogoConfiguracoes(QDialog):
     def configurar_interface(self):
         layout_principal = QVBoxLayout()
         
-        # Grupo Comportamento
         grupo_comportamento = QGroupBox(tr("grupo_comportamento"))
         formulario_comp = QFormLayout()
         self.combo_fechar = QComboBox()
@@ -187,7 +188,6 @@ class DialogoConfiguracoes(QDialog):
         grupo_comportamento.setLayout(formulario_comp)
         layout_principal.addWidget(grupo_comportamento)
 
-        # Grupo Sincronização
         grupo_sinc = QGroupBox(tr("grupo_sinc"))
         layout_sinc = QVBoxLayout()
         self.check_sincronizar = QCheckBox(tr("chk_sincronizar"))
@@ -196,7 +196,6 @@ class DialogoConfiguracoes(QDialog):
         grupo_sinc.setLayout(layout_sinc)
         layout_principal.addWidget(grupo_sinc)
 
-        # Grupo Inicialização
         grupo_inicio = QGroupBox(tr("grupo_inicio"))
         layout_inicio = QVBoxLayout()
         self.check_iniciar_sistema = QCheckBox(tr("chk_iniciar_sistema"))
@@ -210,7 +209,6 @@ class DialogoConfiguracoes(QDialog):
         grupo_inicio.setLayout(layout_inicio)
         layout_principal.addWidget(grupo_inicio)
 
-        # Grupo Notificações
         grupo_notificacao = QGroupBox(tr("grupo_notificacao"))
         formulario_notificacao = QFormLayout()
         self.check_ativar_notif = QCheckBox(tr("chk_ativar_notif"))
@@ -236,7 +234,6 @@ class DialogoConfiguracoes(QDialog):
             self.check_iniciar_min.setChecked(False)
 
     def ao_clicar_ok(self):
-        # Salva Configurações
         self.configuracao["acao_ao_fechar"] = self.combo_fechar.currentData()
         self.configuracao["sincronizar_na_bandeja"] = self.check_sincronizar.isChecked()
         self.configuracao["iniciar_minimizado"] = self.check_iniciar_min.isChecked()
@@ -244,7 +241,6 @@ class DialogoConfiguracoes(QDialog):
         self.configuracao["intervalo_notificacao"] = self.spin_intervalo.value()
         mw.addonManager.writeConfig(__name__, self.configuracao)
         
-        # Chama a função de inicialização passando as preferências
         StartupManager.definir_inicio(
             self.check_iniciar_sistema.isChecked(),
             self.check_iniciar_min.isChecked()

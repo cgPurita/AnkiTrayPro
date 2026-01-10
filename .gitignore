@@ -26,3 +26,9 @@ Thumbs.db
 # --- Logs e Temporários ---
 *.log
 tmp/
+
+# --- Arquivos do Projeto (Ignorar) ---
+resumo_projeto.txt
+run_minimized.vbs
+*.vbs
+templates/tools/*.txt
