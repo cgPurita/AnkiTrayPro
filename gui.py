@@ -2,232 +2,282 @@
 # Copyright © 2025 Caio Graco Purita. Todos os direitos reservados.
 # ARQUIVO: gui.py
 # -------------------------------------------------------------------------
+
+# Importa módulos do sistema para manipulação de arquivos e caminhos
 import sys
 import os
-import winreg  # Módulo para interação com o Registro do Windows
+# Importa módulo para execução de subprocessos (necessário para criar o atalho)
+import subprocess
+# Importa módulo para ler o Registro do Windows
+import winreg
+
+# Importa a janela principal do Anki
 from aqt import mw
+# Importa os componentes gráficos da biblioteca Qt
 from aqt.qt import *
+# Importa funções utilitárias para exibir alertas (apenas em caso de erro)
+from aqt.utils import showWarning
+
+# Importa a função de tradução interna
 from .lang import tr
+# Importa as constantes globais
 from .consts import *
+# Importa o gerenciador de notificações
 from .notifications import notificador
 
+# Classe responsável por gerenciar a inicialização automática do Anki
 class StartupManager:
     """
-    Classe utilitária responsável por gerenciar a entrada do aplicativo
-    no Registro do Windows, permitindo a inicialização automática com o sistema.
+    Gerencia a criação do atalho na pasta de inicialização do Windows.
+    Detecta dinamicamente a pasta real (seja Startup, Dfapps ou OneDrive) via Registro.
     """
     
-    # Define o caminho da chave de registro para execução automática no usuário atual
-    KEY_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
-    # Define o nome interno da chave para nossa aplicação
-    APP_NAME = "AnkiTrayPro_Launcher"
+    # Define o nome do arquivo de atalho que será criado
+    SHORTCUT_NAME = "AnkiTrayPro_AutoStart.lnk"
 
+    # Método estático para localizar a pasta de inicialização verdadeira do usuário
+    @staticmethod
+    def _obter_pasta_startup_real():
+        """
+        Consulta o Registro do Windows para descobrir qual é a pasta 'Startup' VERDADEIRA
+        deste usuário, ignorando caminhos fixos que podem estar errados.
+        """
+        try:
+            # Caminho da chave onde o Windows guarda a localização das pastas especiais
+            chave_shell = r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders"
+            
+            # Abre a chave do usuário atual (HKEY_CURRENT_USER)
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, chave_shell) as key:
+                # O valor "Startup" contém o caminho real configurado no sistema
+                caminho_bruto, tipo = winreg.QueryValueEx(key, "Startup")
+                
+                # O caminho pode vir com variáveis de ambiente (ex: %USERPROFILE%\...)
+                # A função expandvars resolve isso para o caminho completo (C:\Users\Caio\...)
+                caminho_final = os.path.expandvars(caminho_bruto)
+                
+                return caminho_final
+        except Exception as e:
+            # Fallback de emergência caso o registro falhe (muito raro)
+            return os.path.join(os.getenv('APPDATA'), r'Microsoft\Windows\Start Menu\Programs\Startup')
+
+    # Método estático para obter o caminho completo do arquivo .lnk
+    @staticmethod
+    def _obter_caminho_atalho():
+        # Obtém a pasta real
+        pasta_real = StartupManager._obter_pasta_startup_real()
+        # Junta com o nome do arquivo
+        return os.path.join(pasta_real, StartupManager.SHORTCUT_NAME)
+
+    # Verifica se o atalho já existe no disco (usado para marcar o checkbox na interface)
     @staticmethod
     def esta_no_inicio():
-        """
-        Verifica se a chave de registro do aplicativo já existe.
-        Retorna True se estiver configurado para iniciar, False caso contrário.
-        """
-        try:
-            # Tenta abrir a chave de registro em modo somente leitura
-            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, StartupManager.KEY_PATH, 0, winreg.KEY_READ)
-            # Tenta ler o valor associado ao nome do aplicativo
-            winreg.QueryValueEx(key, StartupManager.APP_NAME)
-            # Fecha a chave após a leitura
-            winreg.CloseKey(key)
-            return True
-        except FileNotFoundError:
-            # Retorna False se a chave ou valor não existirem
-            return False
-        except Exception:
-            # Retorna False em caso de outros erros de permissão ou acesso
-            return False
+        return os.path.exists(StartupManager._obter_caminho_atalho())
 
+    # Método auxiliar para ler o Registro do Windows em busca do anki.exe
+    @staticmethod
+    def _buscar_caminho_registro():
+        # Lista de chaves possíveis onde o Anki pode ter gravado a instalação
+        caminhos_registro = [
+            (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Uninstall\Anki"),
+            (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\Uninstall\Anki"),
+            (winreg.HKEY_LOCAL_MACHINE, r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Anki")
+        ]
+        # Itera sobre as chaves
+        for hkey, subkey in caminhos_registro:
+            try:
+                with winreg.OpenKey(hkey, subkey) as chave_aberta:
+                    # Lê o valor "InstallLocation"
+                    pasta_instalacao, _ = winreg.QueryValueEx(chave_aberta, "InstallLocation")
+                    caminho_exe = os.path.join(pasta_instalacao, "anki.exe")
+                    # Confirma se existe
+                    if os.path.exists(caminho_exe):
+                        return caminho_exe
+            except:
+                continue
+        return None
+
+    # Método Principal de Detecção do Executável
+    @staticmethod
+    def _obter_executavel_anki():
+        """
+        Define qual arquivo .exe o atalho deve abrir.
+        """
+        caminho_atual = os.path.abspath(sys.executable)
+        
+        # Se não for python, confiamos no executável atual
+        if "python" not in os.path.basename(caminho_atual).lower():
+            return caminho_atual
+        
+        # Se for Python (ambiente dev), tenta achar a instalação real no registro
+        caminho_registro = StartupManager._buscar_caminho_registro()
+        if caminho_registro:
+            return caminho_registro
+
+        # Se falhar, usa o python mesmo
+        return caminho_atual
+
+    # Criação do Atalho via VBScript
+    @staticmethod
+    def criar_atalho(caminho_exe, caminho_link):
+        try:
+            pasta_link = os.path.dirname(caminho_link)
+            
+            # Se a pasta detectada não existir (raro, mas possível), cria
+            if not os.path.exists(pasta_link):
+                os.makedirs(pasta_link)
+
+            # Argumentos: Se cairmos no fallback do Python, precisamos de '-m aqt'
+            args = ""
+            if "python" in os.path.basename(caminho_exe).lower():
+                args = "-m aqt"
+
+            # Cria o script VBS para gerar o atalho
+            script_vbs = f"""
+            Set oWS = WScript.CreateObject("WScript.Shell")
+            sLinkFile = "{caminho_link}"
+            Set oLink = oWS.CreateShortcut(sLinkFile)
+            oLink.TargetPath = "{caminho_exe}"
+            oLink.Arguments = "{args}"
+            oLink.WorkingDirectory = "{os.path.dirname(caminho_exe)}"
+            oLink.WindowStyle = 1
+            oLink.Description = "Iniciado automaticamente pelo Anki Tray Pro"
+            oLink.Save
+            """
+            
+            # Salva o script temporário
+            caminho_vbs = os.path.join(os.getenv('TEMP'), "anki_shortcut_gen.vbs")
+            with open(caminho_vbs, "w", encoding="utf-8") as file:
+                file.write(script_vbs)
+            
+            # Executa o script
+            cscript_path = os.path.join(os.getenv('SystemRoot'), "System32", "cscript.exe")
+            CREATE_NO_WINDOW = 0x08000000
+            subprocess.run([cscript_path, '//Nologo', caminho_vbs], check=True, creationflags=CREATE_NO_WINDOW)
+            
+            # Limpa o arquivo temporário
+            if os.path.exists(caminho_vbs):
+                os.remove(caminho_vbs)
+                
+        except Exception as e:
+            # Repassa a exceção se der erro
+            raise e
+
+    # Método externo chamado pela GUI
     @staticmethod
     def definir_inicio(ativar):
-        """
-        Cria ou remove a entrada no registro do Windows conforme o parâmetro 'ativar'.
-        """
         try:
-            # Abre a chave de registro com permissão total de acesso (leitura e escrita)
-            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, StartupManager.KEY_PATH, 0, winreg.KEY_ALL_ACCESS)
+            caminho_atalho = StartupManager._obter_caminho_atalho()
             
             if ativar:
-                # Se deve ativar, obtém o caminho do executável Python/Anki atual
-                exe_path = f'"{sys.executable}"'
-                # Grava o valor no registro como uma string (REG_SZ)
-                winreg.SetValueEx(key, StartupManager.APP_NAME, 0, winreg.REG_SZ, exe_path)
+                # Descobre o executável correto
+                exe_alvo = StartupManager._obter_executavel_anki()
+                # Cria o atalho
+                StartupManager.criar_atalho(exe_alvo, caminho_atalho)
+                
+                # REMOVIDO: O showInfo que exibia a mensagem de sucesso foi retirado.
+                # Agora a operação é silenciosa.
             else:
-                # Se deve desativar, tenta excluir o valor do registro
-                try:
-                    winreg.DeleteValue(key, StartupManager.APP_NAME)
-                except FileNotFoundError:
-                    # Se o valor já não existe, ignora o erro
-                    pass
-            
-            # Fecha a chave de registro para efetivar as alterações
-            winreg.CloseKey(key)
+                # Remove o atalho se existir
+                if os.path.exists(caminho_atalho):
+                    os.remove(caminho_atalho)
+                    
         except Exception as e:
-            # Em caso de erro, imprime no console (útil para debug)
-            print(f"Erro ao configurar registro: {e}")
+            # Em caso de erro crítico, mostra um aviso visual
+            showWarning(f"Erro ao configurar inicialização:\n{str(e)}")
 
+# Janela de Configurações
 class DialogoConfiguracoes(QDialog):
     """
-    Janela de diálogo para configuração das preferências do usuário.
+    Interface gráfica para o usuário alterar as preferências do Add-on.
     """
-    
     def __init__(self):
-        # Inicializa a classe base QDialog, definindo a janela principal como pai
         super().__init__(mw)
-        # Define o título da janela usando a tradução
         self.setWindowTitle(tr("nome_menu"))
-        
-        # Carrega as configurações atuais do arquivo JSON
         self.configuracao = mw.addonManager.getConfig(__name__)
-        
-        # Constrói e organiza os widgets da interface
         self.configurar_interface()
 
     def configurar_interface(self):
-        """
-        Cria os grupos, layouts e controles da interface gráfica.
-        """
-        # Layout vertical principal que conterá todos os grupos
         layout_principal = QVBoxLayout()
-
-        # --- Grupo: Comportamento da Janela ---
+        
+        # Grupo: Comportamento
         grupo_comportamento = QGroupBox(tr("grupo_comportamento"))
         formulario_comp = QFormLayout()
-
-        # Cria combobox para a ação de fechar
         self.combo_fechar = QComboBox()
         self.combo_fechar.addItem(tr("opcao_bandeja"), ACAO_BANDEJA)
         self.combo_fechar.addItem(tr("opcao_sair"), ACAO_SAIR)
-        
-        # Define o item selecionado com base na configuração salva
         indice_atual = self.combo_fechar.findData(self.configuracao.get("acao_ao_fechar"))
         self.combo_fechar.setCurrentIndex(indice_atual)
-
-        # NOTA: A opção de configurar o botão minimizar (-) foi removida.
-        # O comportamento agora é sempre padrão do sistema.
-
-        # Adiciona as linhas ao layout de formulário
         formulario_comp.addRow(tr("lbl_fechar"), self.combo_fechar)
-        
-        # Define o layout do grupo
         grupo_comportamento.setLayout(formulario_comp)
         layout_principal.addWidget(grupo_comportamento)
 
-        # --- Grupo: Sincronização ---
+        # Grupo: Sincronização
         grupo_sinc = QGroupBox(tr("grupo_sinc"))
         layout_sinc = QVBoxLayout()
-        
-        # Checkbox para sincronização
         self.check_sincronizar = QCheckBox(tr("chk_sincronizar"))
         self.check_sincronizar.setChecked(self.configuracao.get("sincronizar_na_bandeja"))
-        
         layout_sinc.addWidget(self.check_sincronizar)
         grupo_sinc.setLayout(layout_sinc)
         layout_principal.addWidget(grupo_sinc)
 
-        # --- Grupo: Inicialização ---
+        # Grupo: Inicialização
         grupo_inicio = QGroupBox(tr("grupo_inicio"))
         layout_inicio = QVBoxLayout()
-        
-        # Checkbox: Iniciar com o Windows
-        # O estado inicial é verificado diretamente no registro do sistema
         self.check_iniciar_sistema = QCheckBox(tr("chk_iniciar_sistema"))
         self.check_iniciar_sistema.setChecked(StartupManager.esta_no_inicio())
-        
-        # Checkbox: Iniciar minimizado
-        # O estado inicial vem do arquivo de configuração
         self.check_iniciar_min = QCheckBox(tr("chk_inicio_min"))
         self.check_iniciar_min.setChecked(self.configuracao.get("iniciar_minimizado"))
-        
-        # Define a dependência: só permite marcar "Iniciar Minimizado" se "Iniciar com Windows" estiver ativo
         self.check_iniciar_min.setEnabled(self.check_iniciar_sistema.isChecked())
-        
-        # Conecta o sinal de mudança do primeiro checkbox ao método de controle
         self.check_iniciar_sistema.toggled.connect(self.ao_alternar_inicio_sistema)
-        
-        # Adiciona os checkboxes ao layout
         layout_inicio.addWidget(self.check_iniciar_sistema)
         layout_inicio.addWidget(self.check_iniciar_min)
         grupo_inicio.setLayout(layout_inicio)
         layout_principal.addWidget(grupo_inicio)
 
-        # --- Grupo: Notificações ---
+        # Grupo: Notificações
         grupo_notificacao = QGroupBox(tr("grupo_notificacao"))
         formulario_notificacao = QFormLayout()
-        
-        # Checkbox para ativar notificações
         self.check_ativar_notif = QCheckBox(tr("chk_ativar_notif"))
         self.check_ativar_notif.setChecked(self.configuracao.get("notificacoes_ativadas"))
-        
-        # Campo numérico para o intervalo (1 a 1440 minutos)
         self.spin_intervalo = QSpinBox()
         self.spin_intervalo.setRange(1, 1440)
         self.spin_intervalo.setValue(self.configuracao.get("intervalo_notificacao"))
-        
         formulario_notificacao.addRow(self.check_ativar_notif)
         formulario_notificacao.addRow(tr("lbl_intervalo"), self.spin_intervalo)
         grupo_notificacao.setLayout(formulario_notificacao)
         layout_principal.addWidget(grupo_notificacao)
 
-        # --- Botões de Confirmação ---
-        # Cria a caixa de botões padrão (OK e Cancelar)
+        # Botões
         botoes = QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         caixa_botoes = QDialogButtonBox(botoes)
-        
-        # Conecta os botões aos métodos aceitar e rejeitar
         caixa_botoes.accepted.connect(self.ao_clicar_ok)
         caixa_botoes.rejected.connect(self.reject)
         layout_principal.addWidget(caixa_botoes)
-
-        # Define o layout principal na janela
         self.setLayout(layout_principal)
 
     def ao_alternar_inicio_sistema(self, marcado):
-        """
-        Executado quando o usuário altera o checkbox 'Iniciar com Windows'.
-        Habilita ou desabilita o checkbox dependente 'Iniciar Minimizado'.
-        """
-        # Habilita ou desabilita o segundo checkbox
         self.check_iniciar_min.setEnabled(marcado)
-        
-        # Se o usuário desmarcar o início com o sistema, desmarca automaticamente o início minimizado
         if not marcado:
             self.check_iniciar_min.setChecked(False)
 
     def ao_clicar_ok(self):
-        """
-        Executado ao clicar em OK. Salva todas as configurações e fecha a janela.
-        """
-        
-        # Atualiza o dicionário de configuração com os dados dos widgets
+        # Atualiza configurações na memória
         self.configuracao["acao_ao_fechar"] = self.combo_fechar.currentData()
-        # NOTA: Não salvamos mais "acao_ao_minimizar" pois a opção foi removida
-        
         self.configuracao["sincronizar_na_bandeja"] = self.check_sincronizar.isChecked()
         self.configuracao["iniciar_minimizado"] = self.check_iniciar_min.isChecked()
         self.configuracao["notificacoes_ativadas"] = self.check_ativar_notif.isChecked()
         self.configuracao["intervalo_notificacao"] = self.spin_intervalo.value()
-
-        # Escreve as configurações no arquivo JSON do addon
+        
+        # Grava configurações no disco
         mw.addonManager.writeConfig(__name__, self.configuracao)
         
-        # Chama o gerenciador para aplicar a alteração no Registro do Windows
+        # Chama a função de inicialização (agora silenciosa)
         StartupManager.definir_inicio(self.check_iniciar_sistema.isChecked())
-
-        # Reinicia o temporizador de notificações para refletir possíveis mudanças de intervalo
-        notificador.iniciar_temporizador()
         
-        # Fecha a janela de diálogo com resultado positivo
+        # Reinicia notificador
+        notificador.iniciar_temporizador()
         self.accept()
 
 def mostrar_configuracoes():
-    """
-    Função auxiliar para instanciar e exibir a janela de configurações.
-    """
     dialogo = DialogoConfiguracoes()
     dialogo.exec()

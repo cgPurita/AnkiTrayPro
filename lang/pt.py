@@ -1,5 +1,6 @@
 # Traduções em Português
 # A variável deve se chamar 'traducoes' para o __init__.py encontrar.
+
 traducoes = {
     "nome_menu": "Opções do Anki Tray Pro",
     "grupo_comportamento": "Comportamento da Janela",
@@ -17,5 +18,8 @@ traducoes = {
     "chk_ativar_notif": "Ativar notificações de revisão",
     "lbl_intervalo": "Verificar a cada (minutos):",
     "msg_vencidos": "Você tem {} cartões para revisar!",
-    "dica_bandeja": "Anki está rodando em segundo plano"
+    "dica_bandeja": "Anki está rodando em segundo plano",
+    "menu_abrir": "Abrir Anki",
+    "menu_sincronizar": "Sincronizar",
+    "menu_sair_total": "Sair Totalmente"
 }

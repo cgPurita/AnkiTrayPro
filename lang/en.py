@@ -17,5 +17,8 @@ traducoes = {
     "chk_ativar_notif": "Enable due card notifications",
     "lbl_intervalo": "Check every (minutes):",
     "msg_vencidos": "You have {} cards due!",
-    "dica_bandeja": "Anki is running in background"
+    "dica_bandeja": "Anki is running in background",
+    "menu_abrir": "Open Anki",
+    "menu_sincronizar": "Sync",
+    "menu_sair_total": "Quit Anki Completely"
 }
