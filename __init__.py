@@ -14,15 +14,12 @@ from .notifications import notificador
 def ao_carregar_perfil():
     """
     Executado assim que o perfil do usuário é carregado.
-    Detecta se o Anki foi iniciado via atalho minimizado.
+    Verifica se o Anki foi iniciado via atalho configurado para minimizar.
     """
-    # Não lemos mais a configuração aqui. Confiamos no estado da janela.
-    # Se o atalho foi configurado com WindowStyle=7 (Minimizado), 
-    # o Qt reportará a janela como minimizada.
-    
-    # Verifica se a janela principal está minimizada
+    # Verifica o estado real da janela. 
+    # Se o atalho tem WindowStyle=7, mw.isMinimized() será True.
+    # Se abriu manualmente, será False.
     if mw.isMinimized():
-        # Se sim, movemos para a bandeja (escondemos da barra de tarefas)
         gerenciador_bandeja.esconder_para_bandeja()
 
 def configurar_menu():

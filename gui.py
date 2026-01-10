@@ -16,13 +16,17 @@ from .notifications import notificador
 class StartupManager:
     """
     Gerencia a criação do atalho na pasta de inicialização do Windows.
-    Configura o atalho para iniciar minimizado ou normal, dependendo da escolha do usuário.
+    Detecta o executável real do Anki e configura o modo de janela (Minimizado/Normal).
     """
     
     SHORTCUT_NAME = "AnkiTrayPro_AutoStart.lnk"
 
     @staticmethod
     def _obter_pasta_startup_real():
+        """
+        Descobre a pasta de inicialização real do usuário via Registro,
+        lidando com redirecionamentos (ex: Google Drive, OneDrive).
+        """
         try:
             chave_shell = r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders"
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, chave_shell) as key:
@@ -41,6 +45,7 @@ class StartupManager:
 
     @staticmethod
     def _buscar_caminho_registro():
+        """Consulta o registro do Windows para encontrar a instalação do Anki."""
         caminhos_registro = [
             (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Uninstall\Anki"),
             (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\Uninstall\Anki"),
@@ -59,21 +64,49 @@ class StartupManager:
 
     @staticmethod
     def _obter_executavel_anki():
+        """
+        Define qual .exe o atalho vai abrir.
+        Prioridade: Processo Atual > Registro > Pastas Padrão > Fallback (Python)
+        """
         caminho_atual = os.path.abspath(sys.executable)
+        
+        # 1. Se quem está rodando JÁ É o anki.exe (portátil ou instalado), usa ele.
         if "python" not in os.path.basename(caminho_atual).lower():
             return caminho_atual
         
+        # 2. Se for Python, tenta achar pelo Registro (instalação oficial).
         caminho_registro = StartupManager._buscar_caminho_registro()
         if caminho_registro:
             return caminho_registro
 
+        # 3. Se Registro falhar, verifica as pastas padrão conhecidas.
+        # Isso cobre o seu caso específico: AppData\Local\Programs\Anki\anki.exe
+        locais_padrao = []
+        
+        # Local AppData (Instalação Apenas para Mim)
+        if os.getenv('LOCALAPPDATA'):
+            locais_padrao.append(os.path.join(os.getenv('LOCALAPPDATA'), r"Programs\Anki\anki.exe"))
+            
+        # Arquivos de Programas (Instalação para Todos)
+        if os.getenv('ProgramFiles'):
+            locais_padrao.append(os.path.join(os.getenv('ProgramFiles'), r"Anki\anki.exe"))
+            
+        # Arquivos de Programas x86
+        if os.getenv('ProgramFiles(x86)'):
+            locais_padrao.append(os.path.join(os.getenv('ProgramFiles(x86)'), r"Anki\anki.exe"))
+
+        for caminho in locais_padrao:
+            if os.path.exists(caminho):
+                return caminho
+
+        # 4. Fallback: Se não achou NADA, usa o Python atual (com args depois)
         return caminho_atual
 
     @staticmethod
-    def criar_atalho(caminho_exe, caminho_link, minimizado=False):
+    def criar_atalho(caminho_exe, caminho_link, iniciar_minimizado=False):
         """
-        Cria o atalho. Se 'minimizado' for True, define WindowStyle=7 (Minimizado).
-        Caso contrário, WindowStyle=1 (Normal).
+        Cria o atalho .lnk via VBScript.
+        Argumento 'iniciar_minimizado' define o WindowStyle.
         """
         try:
             pasta_link = os.path.dirname(caminho_link)
@@ -84,8 +117,8 @@ class StartupManager:
             if "python" in os.path.basename(caminho_exe).lower():
                 args = "-m aqt"
 
-            # Define o estilo da janela: 7 = Minimizado, 1 = Normal
-            estilo_janela = 7 if minimizado else 1
+            # WindowStyle: 7 = Minimizado, 1 = Normal (Ativo)
+            estilo_janela = 7 if iniciar_minimizado else 1
 
             script_vbs = f"""
             Set oWS = WScript.CreateObject("WScript.Shell")
@@ -115,12 +148,15 @@ class StartupManager:
 
     @staticmethod
     def definir_inicio(ativar, iniciar_minimizado):
+        """
+        Cria ou remove o atalho com as configurações desejadas.
+        """
         try:
             caminho_atalho = StartupManager._obter_caminho_atalho()
             
             if ativar:
                 exe_alvo = StartupManager._obter_executavel_anki()
-                # Passa a preferência de minimizar para a criação do atalho
+                # Passa a preferência de estilo de janela
                 StartupManager.criar_atalho(exe_alvo, caminho_atalho, iniciar_minimizado)
             else:
                 if os.path.exists(caminho_atalho):
@@ -200,15 +236,15 @@ class DialogoConfiguracoes(QDialog):
             self.check_iniciar_min.setChecked(False)
 
     def ao_clicar_ok(self):
+        # Salva Configurações
         self.configuracao["acao_ao_fechar"] = self.combo_fechar.currentData()
         self.configuracao["sincronizar_na_bandeja"] = self.check_sincronizar.isChecked()
         self.configuracao["iniciar_minimizado"] = self.check_iniciar_min.isChecked()
         self.configuracao["notificacoes_ativadas"] = self.check_ativar_notif.isChecked()
         self.configuracao["intervalo_notificacao"] = self.spin_intervalo.value()
-        
         mw.addonManager.writeConfig(__name__, self.configuracao)
         
-        # Passa os dois parâmetros: Se deve iniciar com o sistema E se deve ser minimizado
+        # Chama a função de inicialização passando as preferências
         StartupManager.definir_inicio(
             self.check_iniciar_sistema.isChecked(),
             self.check_iniciar_min.isChecked()
