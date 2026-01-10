@@ -16,9 +16,15 @@ traducoes = {
     "grupo_notificacao": "Notifications",
     "chk_ativar_notif": "Enable due card notifications",
     "lbl_intervalo": "Check every (minutes):",
-    "msg_vencidos": "You have {} cards due!",
     "dica_bandeja": "Anki is running in background",
+    
+    # Tray Menu
     "menu_abrir": "Open Anki",
     "menu_sincronizar": "Sync",
-    "menu_sair_total": "Quit Anki Completely"
+    "menu_sair_total": "Quit Anki Completely",
+
+    # Notifications
+    "msg_boot": "Hello! You have {} cards to study today.",
+    "msg_novos_um": "Time to review! 1 card is due now.",
+    "msg_novos_varios": "Time to review! {} cards are due now."
 }

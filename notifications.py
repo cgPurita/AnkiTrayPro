@@ -45,7 +45,8 @@ class GerenciadorNotificacao:
             
             # Regra 1: Se iniciou com o Windows (minimizado) e tem cartões, avisa.
             if iniciado_minimizado and total_geral > 0:
-                msg = f"Olá! Você tem {total_geral} cartões para estudar hoje."
+                # Usa tradução dinâmica
+                msg = tr("msg_boot").format(total_geral)
                 self.mostrar_notificacao(msg)
                 
         except:
@@ -77,13 +78,15 @@ class GerenciadorNotificacao:
             revisoes_atuais = contagens[2] # Apenas fila de Revisão (Verde)
             
             # Regra 2: Só avisa se a contagem de REVISÃO aumentou.
-            # Isso ignora cartões novos (azuis) adicionados via sync.
-            # Isso ignora cartões que já estavam lá antes.
             if revisoes_atuais > self.revisoes_conhecidas:
                 novos = revisoes_atuais - self.revisoes_conhecidas
-                # Gramática simples para 1 ou +
-                s = "s" if novos > 1 else ""
-                msg = f"Hora de revisar! {novos} cartão{s} venceu{'' if novos > 1 else 'iram'} agora."
+                
+                # Seleciona a mensagem correta (singular ou plural)
+                if novos == 1:
+                    msg = tr("msg_novos_um")
+                else:
+                    msg = tr("msg_novos_varios").format(novos)
+                
                 self.mostrar_notificacao(msg)
             
             # Atualiza a referência para a próxima verificação

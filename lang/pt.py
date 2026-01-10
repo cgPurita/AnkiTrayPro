@@ -17,9 +17,15 @@ traducoes = {
     "grupo_notificacao": "Notificações",
     "chk_ativar_notif": "Ativar notificações de revisão",
     "lbl_intervalo": "Verificar a cada (minutos):",
-    "msg_vencidos": "Você tem {} cartões para revisar!",
     "dica_bandeja": "Anki está rodando em segundo plano",
+
+    # Menu da Bandeja
     "menu_abrir": "Abrir Anki",
     "menu_sincronizar": "Sincronizar",
-    "menu_sair_total": "Sair Totalmente"
+    "menu_sair_total": "Sair Totalmente",
+
+    # Notificações
+    "msg_boot": "Olá! Você tem {} cartões para estudar hoje.",
+    "msg_novos_um": "Hora de revisar! 1 cartão venceu agora.",
+    "msg_novos_varios": "Hora de revisar! {} cartões venceram agora."
 }
