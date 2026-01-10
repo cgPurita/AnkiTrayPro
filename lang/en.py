@@ -27,5 +27,4 @@ traducoes = {
     "msg_boot": "Hello! You have {} cards to study today.",
     "msg_novos_um": "Time to review! 1 card is due now.",
     "msg_novos_varios": "Time to review! {} cards are due now."
-    "tooltip_tray": "Anki is running in the background",
 }
