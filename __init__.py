@@ -3,8 +3,8 @@ import aqt
 # Importa a referência para a janela principal do Anki
 from aqt import mw
 # Importa as classes necessárias da biblioteca gráfica Qt para interface e eventos
-from aqt.qt import QAction, QMenu, QSystemTrayIcon, QIcon
-# Importa utilitários do Anki
+from aqt.qt import QAction, QMenu, QSystemTrayIcon, QIcon, QEvent, QTimer
+# Importa utilitários do Anki, embora não usados diretamente neste bloco lógico final, mantidos para compatibilidade
 from aqt.utils import tooltip
 
 # Define a classe responsável pelo ícone na bandeja do sistema
@@ -88,12 +88,12 @@ def custom_close_event(event):
     
     # Verifica se a configuração de minimizar para a bandeja está ativa
     if config.get("minimize_to_tray", True):
-        # Dispara a sincronização do Anki para garantir o salvamento de dados
+        # Dispara a sincronização do Anki
         mw.onSync()
         
         # Ignora o evento de fechamento padrão para impedir o encerramento do processo
         event.ignore()
-        # Oculta a janela principal do usuário
+        # Oculta a janela principal
         mw.hide()
         # Garante a criação e exibição do ícone na bandeja
         create_tray_icon()
@@ -102,12 +102,37 @@ def custom_close_event(event):
         # Executa o evento de fechamento original se a configuração estiver inativa
         original_close_event(event)
 
+# Armazena a referência do evento original de mudança de estado da janela
+original_change_event = mw.changeEvent
+
+# Função personalizada para tratar mudanças de estado da janela (ex: minimizar)
+def custom_change_event(event):
+    # Verifica se o evento é uma mudança de estado da janela
+    if event.type() == QEvent.Type.WindowStateChange:
+        # Verifica se o novo estado inclui a janela minimizada
+        if mw.windowState() & aqt.qt.Qt.WindowState.WindowMinimized:
+            # Carrega a configuração do addon
+            config = mw.addonManager.getConfig(__name__) or {"minimize_to_tray": True}
+            
+            # Verifica se a configuração de minimizar para bandeja está ativa
+            if config.get("minimize_to_tray", True):
+                # Agenda o ocultamento da janela para o próximo ciclo de eventos imediato
+                QTimer.singleShot(0, mw.hide)
+                # Garante a existência do ícone na bandeja
+                create_tray_icon()
+    
+    # Executa o tratamento original para outros eventos de mudança de estado
+    original_change_event(event)
+
 # Substitui o manipulador de evento de fechamento da janela pela função personalizada
 mw.closeEvent = custom_close_event
 
+# Substitui o manipulador de evento de mudança de estado pela função personalizada
+mw.changeEvent = custom_change_event
+
 # Função chamada para inicializar o addon
 def init_addon():
-    # Cria o ícone da bandeja imediatamente ao iniciar
+    # Cria o ícone da bandeja
     create_tray_icon()
 
 # Adiciona a função de inicialização ao gancho de abertura de perfil do Anki
