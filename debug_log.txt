@@ -1,0 +1,12 @@
+[2026-01-10 16:16:02] [NOTIFIER] TIMER: O relógio bateu. Iniciando verificação...
+[2026-01-10 16:16:02] [NOTIFIER] STATUS: Janela aberta. Apenas atualizando referência silenciosamente.
+[2026-01-10 16:16:02] [NOTIFIER] RESET: Referência atualizada para 0. O sistema considera que você já viu esses cartões.
+[2026-01-10 16:16:02] [NOTIFIER] TIMER: Janela visível. Pulando sincronização.
+[2026-01-10 16:17:02] [NOTIFIER] TIMER: O relógio bateu. Iniciando verificação...
+[2026-01-10 16:17:02] [NOTIFIER] STATUS: Janela aberta. Apenas atualizando referência silenciosamente.
+[2026-01-10 16:17:02] [NOTIFIER] RESET: Referência atualizada para 0. O sistema considera que você já viu esses cartões.
+[2026-01-10 16:17:02] [NOTIFIER] TIMER: Janela visível. Pulando sincronização.
+[2026-01-10 16:18:02] [NOTIFIER] TIMER: O relógio bateu. Iniciando verificação...
+[2026-01-10 16:18:02] [NOTIFIER] STATUS: Janela aberta. Apenas atualizando referência silenciosamente.
+[2026-01-10 16:18:02] [NOTIFIER] RESET: Referência atualizada para 0. O sistema considera que você já viu esses cartões.
+[2026-01-10 16:18:02] [NOTIFIER] TIMER: Janela visível. Pulando sincronização.
