@@ -29,8 +29,14 @@ def ao_carregar_perfil():
     """
     Executado assim que o perfil do usuário é carregado.
     """
-    # Se detectarmos que viemos do wrapper VBS (boot automático), minimizamos.
-    if foi_iniciado_pelo_atalho_minimizado():
+    # Verifica o tipo de inicialização
+    iniciado_minimizado = foi_iniciado_pelo_atalho_minimizado()
+
+    # 1. Configura a notificação inicial (passando se foi boot auto ou manual)
+    notificador.verificar_inicializacao(iniciado_minimizado)
+
+    # 2. Se for boot automático, minimiza para a bandeja
+    if iniciado_minimizado:
         gerenciador_bandeja.esconder_para_bandeja()
 
 def configurar_menu():
