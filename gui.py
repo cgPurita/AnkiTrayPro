@@ -4,50 +4,54 @@
 # -------------------------------------------------------------------------
 from aqt import mw
 from aqt.qt import *
-from .lang import tr  # Função de tradução
-from .consts import * # Constantes (ACAO_BANDEJA, etc)
-from .notifications import notificador # Para reiniciar o timer após salvar
+from .lang import tr
+from .consts import *
+from .notifications import notificador
 
 class DialogoConfiguracoes(QDialog):
-    """Janela de opções acessível pelo menu Ferramentas."""
+    """
+    Janela de opções acessível pelo menu Ferramentas.
+    Gerencia a interface gráfica para alteração das preferências do usuário.
+    """
     
     def __init__(self):
-        super().__init__(mw) # Define a janela principal do Anki como "pai"
+        # Inicializa a janela herdando as propriedades do Anki (mw)
+        super().__init__(mw)
         self.setWindowTitle(tr("nome_menu"))
         
-        # Carrega a configuração atual (cópia modificável)
+        # Carrega a configuração atual para a memória
         self.configuracao = mw.addonManager.getConfig(__name__)
         
         # Constrói os elementos visuais
         self.configurar_interface()
 
     def configurar_interface(self):
-        """Monta o layout, botões e campos."""
+        """Monta o layout, cria os grupos, dropdowns e botões."""
         layout_principal = QVBoxLayout()
 
-        # --- Grupo: Comportamento da Janela ---
+        # --- Grupo: Comportamento ---
         grupo_comportamento = QGroupBox(tr("grupo_comportamento"))
         formulario_comp = QFormLayout()
 
-        # 1. Dropdown para Ação ao Fechar (Botão X)
+        # Dropdown para Ação ao Fechar (Botão X)
         self.combo_fechar = QComboBox()
-        # Adiciona item (Texto Visível, Valor Interno)
         self.combo_fechar.addItem(tr("opcao_bandeja"), ACAO_BANDEJA)
         self.combo_fechar.addItem(tr("opcao_sair"), ACAO_SAIR)
         
-        # Encontra qual está salvo atualmente e seleciona
+        # Define a seleção atual baseada na config salva
         indice_atual = self.combo_fechar.findData(self.configuracao.get("acao_ao_fechar"))
         self.combo_fechar.setCurrentIndex(indice_atual)
 
-        # 2. Dropdown para Ação ao Minimizar (_)
+        # Dropdown para Ação ao Minimizar (Botão _)
         self.combo_minimizar = QComboBox()
         self.combo_minimizar.addItem(tr("opcao_bandeja"), ACAO_BANDEJA)
         self.combo_minimizar.addItem(tr("opcao_padrao"), ACAO_PADRAO)
         
+        # Define a seleção atual
         indice_min = self.combo_minimizar.findData(self.configuracao.get("acao_ao_minimizar"))
         self.combo_minimizar.setCurrentIndex(indice_min)
 
-        # Adiciona as linhas ao formulário
+        # Adiciona os campos ao formulário
         formulario_comp.addRow(tr("lbl_fechar"), self.combo_fechar)
         formulario_comp.addRow(tr("lbl_minimizar"), self.combo_minimizar)
         grupo_comportamento.setLayout(formulario_comp)
@@ -58,6 +62,7 @@ class DialogoConfiguracoes(QDialog):
         grupo_sinc = QGroupBox(tr("grupo_sinc"))
         layout_sinc = QVBoxLayout()
         
+        # Checkbox para habilitar sincronização ao minimizar
         self.check_sincronizar = QCheckBox(tr("chk_sincronizar"))
         self.check_sincronizar.setChecked(self.configuracao.get("sincronizar_na_bandeja"))
         
@@ -69,6 +74,7 @@ class DialogoConfiguracoes(QDialog):
         grupo_inicio = QGroupBox(tr("grupo_inicio"))
         layout_inicio = QVBoxLayout()
         
+        # Checkbox para iniciar minimizado
         self.check_iniciar_min = QCheckBox(tr("chk_inicio_min"))
         self.check_iniciar_min.setChecked(self.configuracao.get("iniciar_minimizado"))
         
@@ -80,11 +86,13 @@ class DialogoConfiguracoes(QDialog):
         grupo_notificacao = QGroupBox(tr("grupo_notificacao"))
         formulario_notificacao = QFormLayout()
         
+        # Checkbox global de notificações
         self.check_ativar_notif = QCheckBox(tr("chk_ativar_notif"))
         self.check_ativar_notif.setChecked(self.configuracao.get("notificacoes_ativadas"))
         
+        # Campo numérico para o intervalo em minutos
         self.spin_intervalo = QSpinBox()
-        self.spin_intervalo.setRange(1, 1440) # Limita entre 1 minuto e 24 horas (1440 min)
+        self.spin_intervalo.setRange(1, 1440) # Limita entre 1 min e 24h
         self.spin_intervalo.setValue(self.configuracao.get("intervalo_notificacao"))
         
         formulario_notificacao.addRow(self.check_ativar_notif)
@@ -92,8 +100,12 @@ class DialogoConfiguracoes(QDialog):
         grupo_notificacao.setLayout(formulario_notificacao)
         layout_principal.addWidget(grupo_notificacao)
 
-        # --- Botões de Ação (OK / Cancelar) ---
-        caixa_botoes = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        # --- Botões de Ação ---
+        # Define os botões padrão de OK e Cancelar
+        botoes = QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        caixa_botoes = QDialogButtonBox(botoes)
+        
+        # Conecta os sinais de clique aos métodos da classe
         caixa_botoes.accepted.connect(self.ao_clicar_ok)
         caixa_botoes.rejected.connect(self.reject)
         layout_principal.addWidget(caixa_botoes)
@@ -101,9 +113,9 @@ class DialogoConfiguracoes(QDialog):
         self.setLayout(layout_principal)
 
     def ao_clicar_ok(self):
-        """Salva as configurações e fecha a janela."""
+        """Salva as alterações e fecha a janela."""
         
-        # Atualiza o dicionário de configuração com os valores da tela
+        # Atualiza o dicionário de configuração com os valores da interface
         self.configuracao["acao_ao_fechar"] = self.combo_fechar.currentData()
         self.configuracao["acao_ao_minimizar"] = self.combo_minimizar.currentData()
         self.configuracao["sincronizar_na_bandeja"] = self.check_sincronizar.isChecked()
@@ -111,15 +123,16 @@ class DialogoConfiguracoes(QDialog):
         self.configuracao["notificacoes_ativadas"] = self.check_ativar_notif.isChecked()
         self.configuracao["intervalo_notificacao"] = self.spin_intervalo.value()
 
-        # Grava no disco
+        # Persiste os dados no disco
         mw.addonManager.writeConfig(__name__, self.configuracao)
         
-        # Avisa o notificador para reiniciar o timer (pois o intervalo pode ter mudado)
+        # Reinicia o serviço de notificação para aplicar o novo intervalo imediatamente
         notificador.iniciar_temporizador()
         
-        self.accept() # Fecha a janela com sucesso
+        # Fecha o diálogo retornando sucesso
+        self.accept()
 
 def mostrar_configuracoes():
-    """Função auxiliar para instanciar e mostrar a janela."""
+    """Instancia e exibe a janela de configurações de forma modal."""
     dialogo = DialogoConfiguracoes()
-    dialogo.exec_()
+    dialogo.exec()
