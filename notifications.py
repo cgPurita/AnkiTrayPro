@@ -2,152 +2,125 @@
 # Copyright © 2025 Caio Graco Purita. Todos os direitos reservados.
 # ARQUIVO: notifications.py
 # -------------------------------------------------------------------------
-from aqt import mw  # Importa a janela principal do Anki (MainWindow)
+from aqt import mw  # Importa a janela principal do Anki
 from aqt.qt import * # Importa componentes da interface gráfica Qt
 from .lang import tr  # Importa a função de tradução
 
 class GerenciadorNotificacao:
     """
     Gerencia as notificações inteligentes e a sincronização periódica.
-    Monitora o agendador do Anki para detectar quando cartões vencem.
+    Foca exclusivamente no AUMENTO de cartões de Revisão e Aprendizagem.
     """
     def __init__(self):
-        """
-        Construtor da classe. Inicializa o temporizador e as contagens.
-        """
-        # Cria um temporizador (relógio) vinculado à janela principal
         self.temporizador = QTimer(mw)
-        # Define qual função chamar quando o tempo acabar (tick do relógio)
         self.temporizador.timeout.connect(self.ao_bater_relogio)
         
-        # Variável para armazenar o número TOTAL de cartões (Novos + Aprender + Revisar)
-        # que já notificamos. Isso evita repetir a mesma notificação sem necessidade.
-        self.total_conhecido = 0
+        # Armazena a contagem da última verificação.
+        # Serve como "linha de base" para saber se surgiram novos.
+        self.referencia_anterior = 0
         
-        # Inicia a contagem baseada na configuração do usuário
+        # Inicia a contagem baseada na configuração
         self.iniciar_temporizador()
 
     def iniciar_temporizador(self):
-        """
-        Lê as configurações do Add-on e inicia o timer se as notificações estiverem ativas.
-        """
+        """Lê config e inicia o timer."""
         config = mw.addonManager.getConfig(__name__)
-        
-        # Verifica se a opção "Ativar notificações" está marcada no menu
         if config.get("notificacoes_ativadas"):
-            # Converte minutos para milissegundos (minutos * 60s * 1000ms)
             ms = config.get("intervalo_notificacao", 30) * 60 * 1000
-            
-            # Inicia o temporizador com o tempo definido
             self.temporizador.start(ms)
         else:
-            # Se a configuração estiver desativada, paramos o relógio
             self.temporizador.stop()
+
+    def obter_contagem_relevante(self):
+        """
+        Retorna a soma apenas de APRENDIZAGEM (Learn) e REVISÃO (Review).
+        Ignora completamente os cartões NOVOS (New), pois o usuário já sabe que eles existem.
+        """
+        try:
+            # counts() -> (Novos, Aprendizado, Revisão)
+            # Ex: (5 novos, 1 learn, 10 review)
+            c = mw.col.sched.counts()
+            
+            # Somamos apenas índice 1 e 2.
+            return c[1] + c[2]
+        except:
+            return 0
 
     def verificar_inicializacao(self, iniciado_minimizado):
         """
-        Executado apenas UMA vez ao abrir o Anki.
-        Define o marco zero das pendências e notifica se foi boot automático.
+        Executado ao iniciar. Define o 'marco zero'.
         """
-        try:
-            # mw.col.sched.counts() retorna uma tupla: (novos, aprendizado, revisao)
-            # Ex: (0, 1, 12) -> 0 novos, 1 aprendendo, 12 revisões
-            contagens = mw.col.sched.counts()
-            
-            # Somamos TUDO. Se tiver qualquer coisa pendente, queremos saber.
-            total_atual = sum(contagens)
-            
-            # Define a linha de base: já sabemos que esses cartões existem.
-            self.total_conhecido = total_atual
-            
-            # Regra 1: Se o Anki iniciou minimizado (boot do Windows) e tem cartões, avisa.
-            if iniciado_minimizado and total_atual > 0:
-                # Busca a mensagem traduzida e formata com o número total
-                msg = tr("msg_boot").format(total_atual)
-                self.mostrar_notificacao(msg)
-                
-        except:
-            # Se der erro (ex: perfil não carregado totalmente), zera tudo por segurança
-            self.total_conhecido = 0
+        # Tira uma 'foto' de como estão os baralhos agora.
+        # Qualquer cartão que já exista aqui será ignorado nas notificações futuras,
+        # pois ele já faz parte do passado.
+        self.referencia_anterior = self.obter_contagem_relevante()
+        
+        # Opcional: Se quiser manter o "Bom dia" avisando o total acumulado ao ligar o PC,
+        # mantemos este bloco. Se quiser silêncio absoluto até surgir um NOVO, remova o if abaixo.
+        if iniciado_minimizado and self.referencia_anterior > 0:
+            msg = tr("msg_boot").format(self.referencia_anterior)
+            self.mostrar_notificacao(msg)
 
     def ao_bater_relogio(self):
         """
-        Executado a cada intervalo de tempo configurado.
-        Gerencia a sincronização e a verificação de novos cartões.
+        Executado a cada intervalo.
         """
-        # --- LÓGICA DE SINCRONIZAÇÃO INTELIGENTE ---
-        # Verificamos se a janela principal NÃO está visível (mw.isVisible() é False).
-        # Isso significa que o Anki está minimizado na bandeja.
+        # 1. Sincroniza APENAS se estiver minimizado
         if not mw.isVisible():
-            # Só sincroniza se estiver "escondido", para não travar a tela enquanto você estuda.
             mw.onSync()
         
-        # Após tentar sincronizar (ou não), verificamos se surgiram novos cartões
+        # 2. Verifica se algo NOVO apareceu
         self.verificar_novas_pendencias()
 
     def verificar_novas_pendencias(self):
         """
-        Calcula se o número total de cartões a fazer aumentou desde a última checagem.
+        Calcula o DELTA (Diferença) entre agora e a última checagem.
         """
-        # Se o usuário está com a janela do Anki aberta e visível, não interrompemos com notificação
-        # pois ele já está vendo os números na tela.
+        # Se a janela está aberta, apenas atualizamos a referência para não notificar
+        # coisas que o usuário já está vendo.
         if mw.isVisible():
-            try:
-                # Atualizamos a contagem silenciosamente para manter a referência atualizada
-                self.total_conhecido = sum(mw.col.sched.counts())
-            except: pass
+            self.referencia_anterior = self.obter_contagem_relevante()
             return
 
         try:
-            # Obtém contagens atuais do agendador (Novos, Aprendizado, Revisão)
-            contagens = mw.col.sched.counts()
+            # Pega o número atual de (Learn + Review)
+            atual = self.obter_contagem_relevante()
             
-            # --- CORREÇÃO CRUCIAL ---
-            # Antes olhávamos apenas contagens[2] (Revisão Verde).
-            # Agora somamos tudo. O seu cartão de teste de 1 minuto cai em contagens[1] (Aprendizado).
-            total_atual = sum(contagens)
+            # A mágica acontece aqui:
+            # Se eu tinha 10 (referencia_anterior) e agora tenho 11 (atual):
+            # delta = 1. Notifica "1 cartão".
+            # Se eu tinha 10, estudei pelo celular e agora tenho 5:
+            # delta = -5. Não faz nada.
+            delta = atual - self.referencia_anterior
             
-            # Regra 2: Só avisa se a contagem TOTAL aumentou.
-            # Exemplo: Tinha 0. Passou 1 minuto. O cartão de teste venceu. Total agora é 1.
-            # 1 > 0 -> Verdadeiro -> Notifica.
-            if total_atual > self.total_conhecido:
-                novos = total_atual - self.total_conhecido
-                
-                # Seleciona a mensagem correta (singular ou plural)
-                if novos == 1:
+            if delta > 0:
+                # Temos novidades!
+                if delta == 1:
                     msg = tr("msg_novos_um")
                 else:
-                    msg = tr("msg_novos_varios").format(novos)
+                    msg = tr("msg_novos_varios").format(delta)
                  
-                # Chama a função que exibe o balão
                 self.mostrar_notificacao(msg)
             
-            # Atualiza a referência para a próxima verificação
-            self.total_conhecido = total_atual
+            # ATUALIZA A REFERÊNCIA
+            # Isso garante que esses cartões não disparem notificação de novo.
+            # Daqui pra frente, só avisaremos se surgir MAIS cartões além destes.
+            self.referencia_anterior = atual
             
         except:
-            # Em caso de erro na leitura do banco (ex: durante sync), ignora silenciosamente
             pass
 
     def mostrar_notificacao(self, mensagem):
-        """
-        Emite som e mostra o balão de notificação na bandeja do sistema.
-        """
-        # Emite o som padrão de aviso do sistema ("Bip")
+        """Emite som e mostra o balão."""
         QApplication.beep()
-        
-        # Importa o gerenciador da bandeja (importação tardia para evitar erro circular)
         from .tray import gerenciador_bandeja
-        
         if gerenciador_bandeja.icone_bandeja:
-            # Mostra a mensagem usando o ícone padrão de informação ("i")
-            # Isso garante que a notificação sempre apareça, mesmo em versões chatas do Windows
             gerenciador_bandeja.icone_bandeja.showMessage(
                 "Anki Tray Pro", 
                 mensagem, 
                 QSystemTrayIcon.MessageIcon.Information, 
-                5000 # Duração em milissegundos (5 segundos)
+                5000
             )
 
-# Instancia o gerenciador globalmente
+# Instancia
 notificador = GerenciadorNotificacao()
