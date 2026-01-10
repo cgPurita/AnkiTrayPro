@@ -10,7 +10,7 @@ from .consts import *
 class GerenciadorBandeja:
     """
     Gerencia a interação com a bandeja do sistema (System Tray) e intercepta
-    eventos de janela para alterar o comportamento de fechar/minimizar.
+    eventos de janela para alterar o comportamento de fechar.
     """
     def __init__(self):
         # Inicializa a variável que guardará a referência ao ícone
@@ -27,6 +27,7 @@ class GerenciadorBandeja:
         Acessa o gerenciador de addons do Anki para ler uma configuração salva.
         Retorna o valor associado à chave solicitada.
         """
+        # Busca a configuração através do nome do pacote (__name__)
         return mw.addonManager.getConfig(__name__).get(chave)
 
     def configurar_icone_bandeja(self):
@@ -86,6 +87,7 @@ class GerenciadorBandeja:
         Recebe o motivo (reason) do clique no ícone.
         Se for um clique de ativação (geralmente clique simples), restaura a janela.
         """
+        # Verifica se a razão do evento foi um gatilho de clique (Trigger)
         if razao == QSystemTrayIcon.ActivationReason.Trigger:
             self.mostrar_janela()
 
@@ -100,7 +102,7 @@ class GerenciadorBandeja:
         # Obtém o estado atual da janela
         estado_atual = mw.windowState()
         
-        # Remove a flag de 'Minimizado' e adiciona a flag de 'Ativo'
+        # Remove a flag de 'Minimizado' e adiciona a flag de 'Ativo' para garantir que ela suba
         mw.setWindowState(estado_atual & ~Qt.WindowState.WindowMinimized | Qt.WindowState.WindowActive)
         
         # Solicita ativação da janela ao sistema operacional
@@ -109,6 +111,7 @@ class GerenciadorBandeja:
         mw.raise_()
         
         # Oculta o ícone da bandeja, pois a janela principal já está visível
+        # Isso mantém a área de notificação limpa
         if self.icone_bandeja:
             self.icone_bandeja.hide()
 
@@ -120,6 +123,7 @@ class GerenciadorBandeja:
         
         # Verifica na configuração se deve sincronizar antes de esconder
         if self.obter_config("sincronizar_na_bandeja"):
+            # Chama a função nativa de sincronização do Anki
             mw.onSync()
 
         # Garante que o ícone da bandeja esteja visível antes de sumir com a janela
@@ -129,19 +133,14 @@ class GerenciadorBandeja:
         # Oculta a janela principal do Anki
         mw.hide()
         
-        # Exibe um balão de notificação informando que o programa continua rodando
-        if self.icone_bandeja:
-            self.icone_bandeja.showMessage(
-                NOME_APP, 
-                "Minimizado para a bandeja.", 
-                QSystemTrayIcon.MessageIcon.Information, 
-                1000
-            )
+        # NOTA: O código de notificação (showMessage) foi removido aqui.
+        # Agora a transição para a bandeja é silenciosa, sem balões do Windows.
 
     def forcar_saida(self):
         """
         Encerra a instância da aplicação Qt, fechando o Anki definitivamente.
         """
+        # Encerra o loop da aplicação principal
         mw.app.quit()
 
     # --- Tratamento de Eventos (Hooks) ---
@@ -151,15 +150,13 @@ class GerenciadorBandeja:
         Substitui os métodos originais de evento da janela principal (mw) pelos
         métodos personalizados desta classe.
         """
-        # Salva referência ao evento de fechar original
+        # Salva referência ao evento de fechar original para poder chamá-lo se necessário
         self.evento_fechar_original = mw.closeEvent
-        # Substitui pelo nosso método
+        # Substitui pelo nosso método personalizado de fechamento
         mw.closeEvent = self.ao_evento_fechar
         
-        # Salva referência ao evento de mudança de estado original
-        self.evento_mudanca_original = mw.changeEvent
-        # Substitui pelo nosso método
-        mw.changeEvent = self.ao_evento_mudanca
+        # NOTA: Removemos a interceptação de 'changeEvent'.
+        # O botão de minimizar (-) agora funcionará de forma nativa (padrão do SO).
 
     def ao_evento_fechar(self, evento):
         """
@@ -168,33 +165,16 @@ class GerenciadorBandeja:
         # Lê a configuração para saber qual ação tomar
         acao = self.obter_config("acao_ao_fechar")
         
+        # Se a configuração for para ir para a bandeja
         if acao == ACAO_BANDEJA:
-            # Ignora o pedido de fechamento do sistema
+            # Ignora o pedido de fechamento do sistema (não mata o processo)
             evento.ignore()
             # Executa a rotina de minimizar para a bandeja
             self.esconder_para_bandeja()
         else:
-            # Se a ação for sair ou padrão, repassa para o tratamento original do Anki
+            # Se a ação for sair ou outra, repassa para o tratamento original do Anki
+            # Isso permite que o Anki feche normalmente
             self.evento_fechar_original(evento)
-
-    def ao_evento_mudanca(self, evento):
-        """
-        Intercepta eventos de mudança de estado da janela (ex: minimizar, maximizar).
-        """
-        # Verifica se o tipo de evento é uma mudança de estado da janela
-        if evento.type() == QEvent.Type.WindowStateChange:
-            # Verifica se o novo estado inclui a flag de minimizado
-            if mw.windowState() & Qt.WindowState.WindowMinimized:
-                # Lê a configuração do usuário para minimização
-                acao = self.obter_config("acao_ao_minimizar")
-                
-                if acao == ACAO_BANDEJA:
-                    # Agenda a execução do escondimento para o próximo ciclo do loop de eventos.
-                    # Isso permite que o sistema operacional conclua animações pendentes.
-                    QTimer.singleShot(50, self.esconder_para_bandeja)
-        
-        # Chama o tratador original para garantir que outras mudanças funcionem normalmente
-        self.evento_mudanca_original(evento)
 
 # Instancia o gerenciador globalmente para que inicie junto com o módulo
 gerenciador_bandeja = GerenciadorBandeja()

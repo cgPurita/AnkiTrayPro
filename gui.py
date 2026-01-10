@@ -108,18 +108,11 @@ class DialogoConfiguracoes(QDialog):
         indice_atual = self.combo_fechar.findData(self.configuracao.get("acao_ao_fechar"))
         self.combo_fechar.setCurrentIndex(indice_atual)
 
-        # Cria combobox para a ação de minimizar
-        self.combo_minimizar = QComboBox()
-        self.combo_minimizar.addItem(tr("opcao_bandeja"), ACAO_BANDEJA)
-        self.combo_minimizar.addItem(tr("opcao_padrao"), ACAO_PADRAO)
-        
-        # Define o item selecionado para minimizar
-        indice_min = self.combo_minimizar.findData(self.configuracao.get("acao_ao_minimizar"))
-        self.combo_minimizar.setCurrentIndex(indice_min)
+        # NOTA: A opção de configurar o botão minimizar (-) foi removida.
+        # O comportamento agora é sempre padrão do sistema.
 
         # Adiciona as linhas ao layout de formulário
         formulario_comp.addRow(tr("lbl_fechar"), self.combo_fechar)
-        formulario_comp.addRow(tr("lbl_minimizar"), self.combo_minimizar)
         
         # Define o layout do grupo
         grupo_comportamento.setLayout(formulario_comp)
@@ -213,7 +206,8 @@ class DialogoConfiguracoes(QDialog):
         
         # Atualiza o dicionário de configuração com os dados dos widgets
         self.configuracao["acao_ao_fechar"] = self.combo_fechar.currentData()
-        self.configuracao["acao_ao_minimizar"] = self.combo_minimizar.currentData()
+        # NOTA: Não salvamos mais "acao_ao_minimizar" pois a opção foi removida
+        
         self.configuracao["sincronizar_na_bandeja"] = self.check_sincronizar.isChecked()
         self.configuracao["iniciar_minimizado"] = self.check_iniciar_min.isChecked()
         self.configuracao["notificacoes_ativadas"] = self.check_ativar_notif.isChecked()
