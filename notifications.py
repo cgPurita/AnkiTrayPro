@@ -16,7 +16,6 @@ class GerenciadorNotificacao:
         self.temporizador.timeout.connect(self.ao_bater_relogio)
         
         # Armazena a contagem da última verificação.
-        # Serve como "linha de base" para saber se surgiram novos.
         self.referencia_anterior = 0
         
         # Inicia a contagem baseada na configuração
@@ -34,29 +33,28 @@ class GerenciadorNotificacao:
     def obter_contagem_relevante(self):
         """
         Retorna a soma apenas de APRENDIZAGEM (Learn) e REVISÃO (Review).
-        Ignora completamente os cartões NOVOS (New), pois o usuário já sabe que eles existem.
+        Ignora cartões NOVOS.
         """
         try:
-            # counts() -> (Novos, Aprendizado, Revisão)
-            # Ex: (5 novos, 1 learn, 10 review)
             c = mw.col.sched.counts()
-            
-            # Somamos apenas índice 1 e 2.
             return c[1] + c[2]
         except:
             return 0
+    
+    def resetar_contagem(self):
+        """
+        Atualiza a referência imediatamente para o valor atual.
+        Isso 'zera' o delta, impedindo notificações de cartões já existentes.
+        Deve ser chamado ao minimizar ou maximizar a janela.
+        """
+        self.referencia_anterior = self.obter_contagem_relevante()
 
     def verificar_inicializacao(self, iniciado_minimizado):
         """
         Executado ao iniciar. Define o 'marco zero'.
         """
-        # Tira uma 'foto' de como estão os baralhos agora.
-        # Qualquer cartão que já exista aqui será ignorado nas notificações futuras,
-        # pois ele já faz parte do passado.
-        self.referencia_anterior = self.obter_contagem_relevante()
+        self.resetar_contagem()
         
-        # Opcional: Se quiser manter o "Bom dia" avisando o total acumulado ao ligar o PC,
-        # mantemos este bloco. Se quiser silêncio absoluto até surgir um NOVO, remova o if abaixo.
         if iniciado_minimizado and self.referencia_anterior > 0:
             msg = tr("msg_boot").format(self.referencia_anterior)
             self.mostrar_notificacao(msg)
@@ -65,36 +63,25 @@ class GerenciadorNotificacao:
         """
         Executado a cada intervalo.
         """
-        # 1. Sincroniza APENAS se estiver minimizado
         if not mw.isVisible():
             mw.onSync()
         
-        # 2. Verifica se algo NOVO apareceu
         self.verificar_novas_pendencias()
 
     def verificar_novas_pendencias(self):
         """
         Calcula o DELTA (Diferença) entre agora e a última checagem.
         """
-        # Se a janela está aberta, apenas atualizamos a referência para não notificar
-        # coisas que o usuário já está vendo.
+        # Se a janela está aberta, atualizamos a referência
         if mw.isVisible():
-            self.referencia_anterior = self.obter_contagem_relevante()
+            self.resetar_contagem()
             return
 
         try:
-            # Pega o número atual de (Learn + Review)
             atual = self.obter_contagem_relevante()
-            
-            # A mágica acontece aqui:
-            # Se eu tinha 10 (referencia_anterior) e agora tenho 11 (atual):
-            # delta = 1. Notifica "1 cartão".
-            # Se eu tinha 10, estudei pelo celular e agora tenho 5:
-            # delta = -5. Não faz nada.
             delta = atual - self.referencia_anterior
             
             if delta > 0:
-                # Temos novidades!
                 if delta == 1:
                     msg = tr("msg_novos_um")
                 else:
@@ -102,9 +89,7 @@ class GerenciadorNotificacao:
                  
                 self.mostrar_notificacao(msg)
             
-            # ATUALIZA A REFERÊNCIA
-            # Isso garante que esses cartões não disparem notificação de novo.
-            # Daqui pra frente, só avisaremos se surgir MAIS cartões além destes.
+            # Atualiza a referência para evitar repetição
             self.referencia_anterior = atual
             
         except:
